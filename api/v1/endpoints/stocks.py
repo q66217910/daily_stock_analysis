@@ -9,6 +9,7 @@
 2. POST /api/v1/stocks/parse-import 解析 CSV/Excel/剪贴板
 3. GET /api/v1/stocks/{code}/quote 实时行情接口
 4. GET /api/v1/stocks/{code}/history 历史行情接口
+5. GET /api/v1/stocks/{code}/chip-distribution 筹码分布接口
 """
 
 import logging
@@ -17,11 +18,14 @@ from typing import Optional
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 
 from api.v1.schemas.stocks import (
+    ChipDistribution,
     ExtractFromImageResponse,
     ExtractItem,
     KLineData,
+    SectorRankingsResponse,
     StockHistoryResponse,
     StockQuote,
+    StockSectorResponse,
 )
 from api.v1.schemas.common import ErrorResponse
 from src.services.image_stock_extractor import (
@@ -279,7 +283,9 @@ def get_stock_quote(stock_code: str) -> StockQuote:
                     "message": f"未找到股票 {stock_code} 的行情数据"
                 }
             )
-        
+
+        logger.info(result)
+
         return StockQuote(
             stock_code=result.get("stock_code", stock_code),
             stock_name=result.get("stock_name"),
@@ -292,6 +298,13 @@ def get_stock_quote(stock_code: str) -> StockQuote:
             prev_close=result.get("prev_close"),
             volume=result.get("volume"),
             amount=result.get("amount"),
+            volume_ratio=result.get("volume_ratio"),
+            turnover_rate=result.get("turnover_rate"),
+            pe_ratio=result.get("pe_ratio"),
+            pb_ratio=result.get("pb_ratio"),
+            total_mv=result.get("total_mv"),
+            circ_mv=result.get("circ_mv"),
+            amplitude=result.get("amplitude"),
             update_time=result.get("update_time")
         )
         
@@ -385,5 +398,165 @@ def get_stock_history(
             detail={
                 "error": "internal_error",
                 "message": f"获取历史行情失败: {str(e)}"
+            }
+        )
+
+
+@router.get(
+    "/{stock_code}/chip-distribution",
+    response_model=ChipDistribution,
+    responses={
+        200: {"description": "筹码分布数据"},
+        404: {"description": "股票不存在或筹码数据不可用", "model": ErrorResponse},
+        500: {"description": "服务器错误", "model": ErrorResponse},
+    },
+    summary="获取股票筹码分布",
+    description="获取指定股票的筹码分布数据（获利比例、平均成本、筹码集中度等）"
+)
+def get_chip_distribution(stock_code: str) -> ChipDistribution:
+    """
+    获取股票筹码分布
+
+    获取指定股票的筹码分布数据，包括获利比例、平均成本、筹码集中度等。
+
+    Args:
+        stock_code: 股票代码（如 600519、00700、AAPL）
+
+    Returns:
+        ChipDistribution: 筹码分布数据
+
+    Raises:
+        HTTPException: 404 - 股票不存在或筹码数据不可用
+    """
+    try:
+        service = StockService()
+
+        # 使用 StockService 获取筹码分布
+        result = service.get_chip_distribution(stock_code)
+
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "not_found",
+                    "message": f"未找到股票 {stock_code} 的筹码分布数据"
+                }
+            )
+
+        return ChipDistribution(**result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取筹码分布失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": f"获取筹码分布失败: {str(e)}"
+            }
+        )
+
+
+@router.get(
+    "/sector-rankings",
+    response_model=SectorRankingsResponse,
+    responses={
+        200: {"description": "板块排名数据"},
+        500: {"description": "服务器错误", "model": ErrorResponse},
+    },
+    summary="获取板块排名",
+    description="获取涨幅前N和跌幅前N的板块排名数据"
+)
+def get_sector_rankings(n: int = Query(5, ge=1, le=20, description="排名数量，默认前5名和后5名")) -> SectorRankingsResponse:
+    """
+    获取板块排名数据
+
+    获取涨幅前N和跌幅前N的板块排名数据。
+
+    Args:
+        n: 排名数量，默认前5名和后5名
+
+    Returns:
+        SectorRankingsResponse: 板块排名数据
+    """
+    try:
+        service = StockService()
+
+        # 使用 def 而非 async def，FastAPI 自动在线程池中执行
+        result = service.get_sector_rankings(n)
+
+        return SectorRankingsResponse(
+            top_sectors=result.get("top_sectors", []),
+            bottom_sectors=result.get("bottom_sectors", [])
+        )
+
+    except Exception as e:
+        logger.error(f"获取板块排名失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": f"获取板块排名失败: {str(e)}"
+            }
+        )
+
+
+@router.get(
+    "/{stock_code}/sectors",
+    response_model=StockSectorResponse,
+    responses={
+        200: {"description": "股票所属板块信息"},
+        404: {"description": "股票不存在", "model": ErrorResponse},
+        500: {"description": "服务器错误", "model": ErrorResponse},
+    },
+    summary="获取股票所属板块",
+    description="获取指定股票所属板块的详细信息，包括板块名称、涨跌幅等"
+)
+def get_stock_sectors(stock_code: str) -> StockSectorResponse:
+    """
+    获取股票所属板块信息
+
+    获取指定股票所属板块的详细信息，包括板块名称、涨跌幅等。
+
+    Args:
+        stock_code: 股票代码（如 600519、00700、AAPL）
+
+    Returns:
+        StockSectorResponse: 股票所属板块信息
+
+    Raises:
+        HTTPException: 404 - 股票不存在
+    """
+    try:
+        service = StockService()
+
+        # 使用 def 而非 async def，FastAPI 自动在线程池中执行
+        result = service.get_stock_sectors(stock_code)
+
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "not_found",
+                    "message": f"未找到股票 {stock_code} 的板块信息"
+                }
+            )
+
+        return StockSectorResponse(
+            stock_code=result.get("stock_code", stock_code),
+            sectors=result.get("sectors", []),
+            count=result.get("count", 0)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"获取股票板块信息失败: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "internal_error",
+                "message": f"获取股票板块信息失败: {str(e)}"
             }
         )

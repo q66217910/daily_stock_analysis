@@ -266,6 +266,18 @@ class BaseFetcher(ABC):
         """
         return None
 
+    def get_belong_board(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """
+        获取股票所属板块
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            DataFrame: 所属板块信息，包含板块名称、代码、涨跌幅等
+        """
+        return None
+
     def get_daily_data(
         self,
         stock_code: str, 
@@ -1112,6 +1124,19 @@ class DataFetcherManager:
                 logger.warning(f"[{fetcher.name}] 获取市场统计失败: {e}")
                 continue
         return {}
+
+    def get_belong_board(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """获取股票所属板块（自动切换数据源）"""
+        for fetcher in self._fetchers:
+            try:
+                data = fetcher.get_belong_board(stock_code)
+                if data is not None and not data.empty:
+                    logger.info(f"[{fetcher.name}] 获取所属板块成功")
+                    return data
+            except Exception as e:
+                logger.warning(f"[{fetcher.name}] 获取所属板块失败: {e}")
+                continue
+        return None
 
     def get_sector_rankings(self, n: int = 5) -> Tuple[List[Dict], List[Dict]]:
         """获取板块涨跌榜（自动切换数据源）"""
