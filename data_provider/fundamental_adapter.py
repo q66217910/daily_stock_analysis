@@ -257,8 +257,17 @@ def _extract_latest_row(df: pd.DataFrame, stock_code: str) -> Optional[pd.Series
                 continue
         return None
 
-    # Fallback: use latest row
-    return df.iloc[0]
+    # Fallback: try to find date column and pick the newest row
+    # AkShare APIs may return data in ascending order (oldest first),
+    # so iloc[0] would incorrectly return the oldest row.
+    date_cols = [c for c in df.columns if any(k in str(c) for k in ("日期", "date", "时间", "日", "trade_date", "报告期"))]
+    if date_cols:
+        try:
+            sorted_df = df.sort_values(by=date_cols[0], ascending=False)
+            return sorted_df.iloc[0]
+        except Exception:
+            pass
+    return df.iloc[-1]
 
 
 class AkshareFundamentalAdapter:
@@ -446,6 +455,13 @@ class AkshareFundamentalAdapter:
                 }
                 result["source_chain"].append(f"capital_stock:{stock_source}")
 
+        # Fallback: Tushare Pro moneyflow when AkShare returns nothing
+        if not result["stock_flow"]:
+            tushare_flow = self._try_tushare_moneyflow(stock_code)
+            if tushare_flow:
+                result["stock_flow"] = tushare_flow
+                result["source_chain"].append("capital_stock:tushare_moneyflow")
+
         sector_df, sector_source, sector_errors = self._call_df_candidates([
             ("stock_sector_fund_flow_rank", {}),
             ("stock_sector_fund_flow_summary", {}),
@@ -469,6 +485,89 @@ class AkshareFundamentalAdapter:
         has_content = bool(result["stock_flow"] or result["sector_rankings"]["top"] or result["sector_rankings"]["bottom"])
         result["status"] = "partial" if has_content else "not_supported"
         return result
+
+    def _try_tushare_moneyflow(self, stock_code: str) -> Optional[Dict[str, Optional[float]]]:
+        """
+        Fallback: query Tushare Pro moneyflow API for individual stock capital flow.
+
+        Used when AkShare returns no data. Requires TUSHARE_TOKEN to be configured.
+        Returns stock_flow dict with main_net_inflow / inflow_5d / inflow_10d, or None.
+        """
+        from src.config import get_config
+
+        config = get_config()
+        token = (getattr(config, "tushare_token", None) or "").strip()
+        if not token:
+            return None
+
+        code = _normalize_code(stock_code) if isinstance(stock_code, str) else str(stock_code)
+        if code.startswith(("6", "9")):
+            ts_code = f"{code}.SH"
+        elif code.startswith(("0", "3")):
+            ts_code = f"{code}.SZ"
+        elif code.startswith(("4", "8")):
+            ts_code = f"{code}.BJ"
+        else:
+            return None
+
+        try:
+            import requests
+
+            resp = requests.post(
+                "http://api.tushare.pro",
+                json={
+                    "api_name": "moneyflow",
+                    "token": token,
+                    "params": {"ts_code": ts_code, "limit": 10},
+                    "fields": "trade_date,net_mf_amount",
+                },
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                return None
+
+            body = resp.json()
+            if body.get("code") != 0:
+                return None
+
+            data = body.get("data") or {}
+            items = data.get("items") or []
+            if not items:
+                return None
+
+            cols = data.get("fields") or []
+            df = pd.DataFrame(items, columns=cols)
+            if df.empty:
+                return None
+
+            # Tushare returns data in descending order (newest first); sort to be safe
+            if "trade_date" in df.columns:
+                df = df.sort_values("trade_date", ascending=False)
+
+            def _to_yuan(val) -> Optional[float]:
+                """Tushare net_mf_amount is in 万元, convert to 元."""
+                try:
+                    return float(val) * 10000.0
+                except (TypeError, ValueError):
+                    return None
+
+            latest = df.iloc[0]
+            main_net_inflow = _to_yuan(latest.get("net_mf_amount"))
+            inflow_5d: Optional[float] = None
+            inflow_10d: Optional[float] = None
+            if len(df) >= 5:
+                inflow_5d = _to_yuan(pd.to_numeric(df.iloc[:5]["net_mf_amount"], errors="coerce").sum())
+            if len(df) >= 10:
+                inflow_10d = _to_yuan(pd.to_numeric(df.iloc[:10]["net_mf_amount"], errors="coerce").sum())
+
+            return {
+                "main_net_inflow": main_net_inflow,
+                "inflow_5d": inflow_5d,
+                "inflow_10d": inflow_10d,
+            }
+        except Exception as e:
+            logger.debug("[Tushare] moneyflow fallback failed for %s: %s", stock_code, e)
+            return None
 
     def get_dragon_tiger_flag(self, stock_code: str, lookback_days: int = 20) -> Dict[str, Any]:
         """

@@ -42,7 +42,8 @@ class TestFundamentalAdapter(unittest.TestCase):
         df = pd.DataFrame({"值": [1, 2]})
         row = _extract_latest_row(df, "600519")
         self.assertIsNotNone(row)
-        self.assertEqual(row["值"], 1)
+        # Takes the last row (iloc[-1]) since data is often ascending
+        self.assertEqual(row["值"], 2)
 
     def test_dragon_tiger_no_match_with_code_column_is_ok(self) -> None:
         adapter = AkshareFundamentalAdapter()

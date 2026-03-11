@@ -9,7 +9,9 @@ import type {
   BacktestResultItem,
   BacktestRunResponse,
   PerformanceMetrics,
+  TrendPrediction,
 } from '../types/backtest';
+import { TREND_PREDICTION_OPTIONS } from '../types/backtest';
 
 const BACKTEST_INPUT_CLASS =
   'input-surface input-focus-glow h-11 w-full rounded-xl border bg-transparent px-4 text-sm transition-all focus:outline-none disabled:cursor-not-allowed disabled:opacity-60';
@@ -203,6 +205,10 @@ const BacktestPage: React.FC = () => {
   const [analysisDateTo, setAnalysisDateTo] = useState('');
   const [evalDays, setEvalDays] = useState('');
   const [forceRerun, setForceRerun] = useState(false);
+  const [trendPrediction, setTrendPrediction] = useState<TrendPrediction[]>([]);
+  const [sentimentScoreMin, setSentimentScoreMin] = useState('');
+  const [sentimentScoreMax, setSentimentScoreMax] = useState('');
+  const [timeliness, setTimeliness] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const [runResult, setRunResult] = useState<BacktestRunResponse | null>(null);
   const [runError, setRunError] = useState<ParsedApiError | null>(null);
@@ -230,6 +236,10 @@ const BacktestPage: React.FC = () => {
     windowDays?: number,
     startDate?: string,
     endDate?: string,
+    trends?: string[],
+    sentMin?: number,
+    sentMax?: number,
+    timelinessFilter?: string,
   ) => {
     setIsLoadingResults(true);
     try {
@@ -238,6 +248,10 @@ const BacktestPage: React.FC = () => {
         evalWindowDays: windowDays,
         analysisDateFrom: startDate || undefined,
         analysisDateTo: endDate || undefined,
+        trendPrediction: trends && trends.length > 0 ? trends : undefined,
+        sentimentScoreMin: sentMin,
+        sentimentScoreMax: sentMax,
+        timeSensitivity: timelinessFilter || undefined,
         page,
         limit: pageSize,
       });
@@ -259,6 +273,10 @@ const BacktestPage: React.FC = () => {
     windowDays?: number,
     startDate?: string,
     endDate?: string,
+    trends?: string[],
+    sentMin?: number,
+    sentMax?: number,
+    timelinessFilter?: string,
   ) => {
     setIsLoadingPerf(true);
     try {
@@ -266,6 +284,10 @@ const BacktestPage: React.FC = () => {
         evalWindowDays: windowDays,
         analysisDateFrom: startDate || undefined,
         analysisDateTo: endDate || undefined,
+        trendPrediction: trends && trends.length > 0 ? trends : undefined,
+        sentimentScoreMin: sentMin,
+        sentimentScoreMax: sentMax,
+        timeSensitivity: timelinessFilter || undefined,
       });
       setOverallPerf(overall);
 
@@ -274,6 +296,10 @@ const BacktestPage: React.FC = () => {
           evalWindowDays: windowDays,
           analysisDateFrom: startDate || undefined,
           analysisDateTo: endDate || undefined,
+          trendPrediction: trends && trends.length > 0 ? trends : undefined,
+          sentimentScoreMin: sentMin,
+          sentimentScoreMax: sentMax,
+          timeSensitivity: timelinessFilter || undefined,
         });
         setStockPerf(stock);
       } else {
@@ -299,7 +325,7 @@ const BacktestPage: React.FC = () => {
       if (windowDays && !evalDays) {
         setEvalDays(String(windowDays));
       }
-      fetchResults(1, undefined, windowDays, undefined, undefined);
+      fetchResults(1, undefined, windowDays, undefined, undefined, undefined, undefined, undefined);
     };
     init();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -320,8 +346,10 @@ const BacktestPage: React.FC = () => {
       });
       setRunResult(response);
       // Refresh data with same eval_window_days
-      fetchResults(1, codeFilter.trim() || undefined, evalWindowDays, analysisDateFrom, analysisDateTo);
-      fetchPerformance(codeFilter.trim() || undefined, evalWindowDays, analysisDateFrom, analysisDateTo);
+      const sentMin = sentimentScoreMin !== '' ? parseInt(sentimentScoreMin, 10) : undefined;
+      const sentMax = sentimentScoreMax !== '' ? parseInt(sentimentScoreMax, 10) : undefined;
+      fetchResults(1, codeFilter.trim() || undefined, evalWindowDays, analysisDateFrom, analysisDateTo, trendPrediction, sentMin, sentMax, timeliness);
+      fetchPerformance(codeFilter.trim() || undefined, evalWindowDays, analysisDateFrom, analysisDateTo, trendPrediction, sentMin, sentMax, timeliness);
     } catch (err) {
       setRunError(getParsedApiError(err));
     } finally {
@@ -333,9 +361,11 @@ const BacktestPage: React.FC = () => {
   const handleFilter = () => {
     const code = codeFilter.trim() || undefined;
     const windowDays = evalDays ? parseInt(evalDays, 10) : undefined;
+    const sentMin = sentimentScoreMin !== '' ? parseInt(sentimentScoreMin, 10) : undefined;
+    const sentMax = sentimentScoreMax !== '' ? parseInt(sentimentScoreMax, 10) : undefined;
     setCurrentPage(1);
-    fetchResults(1, code, windowDays, analysisDateFrom, analysisDateTo);
-    fetchPerformance(code, windowDays, analysisDateFrom, analysisDateTo);
+    fetchResults(1, code, windowDays, analysisDateFrom, analysisDateTo, trendPrediction, sentMin, sentMax, timeliness);
+    fetchPerformance(code, windowDays, analysisDateFrom, analysisDateTo, trendPrediction, sentMin, sentMax, timeliness);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -346,17 +376,32 @@ const BacktestPage: React.FC = () => {
 
   const handleShowNextDay = () => {
     const code = codeFilter.trim() || undefined;
+    const sentMin = sentimentScoreMin !== '' ? parseInt(sentimentScoreMin, 10) : undefined;
+    const sentMax = sentimentScoreMax !== '' ? parseInt(sentimentScoreMax, 10) : undefined;
     setEvalDays('1');
     setCurrentPage(1);
-    fetchResults(1, code, 1, analysisDateFrom, analysisDateTo);
-    fetchPerformance(code, 1, analysisDateFrom, analysisDateTo);
+    fetchResults(1, code, 1, analysisDateFrom, analysisDateTo, trendPrediction, sentMin, sentMax, timeliness);
+    fetchPerformance(code, 1, analysisDateFrom, analysisDateTo, trendPrediction, sentMin, sentMax, timeliness);
   };
 
   // Pagination
   const totalPages = Math.ceil(totalResults / pageSize);
   const handlePageChange = (page: number) => {
     const windowDays = evalDays ? parseInt(evalDays, 10) : undefined;
-    fetchResults(page, codeFilter.trim() || undefined, windowDays, analysisDateFrom, analysisDateTo);
+    const sentMin = sentimentScoreMin !== '' ? parseInt(sentimentScoreMin, 10) : undefined;
+    const sentMax = sentimentScoreMax !== '' ? parseInt(sentimentScoreMax, 10) : undefined;
+    fetchResults(page, codeFilter.trim() || undefined, windowDays, analysisDateFrom, analysisDateTo, trendPrediction, sentMin, sentMax, timeliness);
+  };
+
+  // Toggle trend prediction selection
+  const toggleTrendPrediction = (trend: TrendPrediction) => {
+    setTrendPrediction(prev => {
+      if (prev.includes(trend)) {
+        return prev.filter(t => t !== trend);
+      } else {
+        return [...prev, trend];
+      }
+    });
   };
 
   return (
@@ -457,6 +502,106 @@ const BacktestPage: React.FC = () => {
             )}
           </button>
         </div>
+        {/* AI Prediction Filter */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-text">AI Prediction:</span>
+          {TREND_PREDICTION_OPTIONS.map((trend) => (
+            <button
+              key={trend}
+              type="button"
+              onClick={() => toggleTrendPrediction(trend)}
+              disabled={isRunning}
+              className={`px-3 py-1 text-xs rounded-full border transition-all ${
+                trendPrediction.includes(trend)
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-transparent border-gray-600 text-gray-300 hover:border-gray-400'
+              }`}
+            >
+              {trend}
+            </button>
+          ))}
+          {trendPrediction.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTrendPrediction([])}
+              disabled={isRunning}
+              className="text-xs text-gray-400 hover:text-white"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {/* Sentiment Score Filter */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-text">情绪评分:</span>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={-100}
+              max={100}
+              value={sentimentScoreMin}
+              onChange={(e) => setSentimentScoreMin(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="最低"
+              disabled={isRunning}
+              className={`${BACKTEST_COMPACT_INPUT_CLASS} w-20 text-center tabular-nums`}
+            />
+            <span className="text-xs text-muted-text">~</span>
+            <input
+              type="number"
+              min={-100}
+              max={100}
+              value={sentimentScoreMax}
+              onChange={(e) => setSentimentScoreMax(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="最高"
+              disabled={isRunning}
+              className={`${BACKTEST_COMPACT_INPUT_CLASS} w-20 text-center tabular-nums`}
+            />
+          </div>
+          {(sentimentScoreMin !== '' || sentimentScoreMax !== '') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSentimentScoreMin('');
+                setSentimentScoreMax('');
+              }}
+              disabled={isRunning}
+              className="text-xs text-gray-400 hover:text-white"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {/* 时效性 Filter */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-text">时效性:</span>
+          {['今日内', '本周内'].map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setTimeliness(timeliness === value ? '' : value)}
+              disabled={isRunning}
+              className={`px-3 py-1 text-xs rounded-full border transition-all ${
+                timeliness === value
+                  ? 'bg-blue-600 border-blue-500 text-white'
+                  : 'bg-transparent border-gray-600 text-gray-300 hover:border-gray-400'
+              }`}
+            >
+              {value}
+            </button>
+          ))}
+          {timeliness !== '' && (
+            <button
+              type="button"
+              onClick={() => setTimeliness('')}
+              disabled={isRunning}
+              className="text-xs text-gray-400 hover:text-white"
+            >
+              Clear
+            </button>
+          )}
+        </div>
         {runResult && (
           <div className="mt-2 max-w-4xl">
             <RunSummary data={runResult} />
@@ -526,6 +671,16 @@ const BacktestPage: React.FC = () => {
                     {evalDays ? ` · ${evalDays} 日窗口` : ''}
                     {analysisDateFrom ? ` · 自 ${analysisDateFrom}` : ''}
                     {analysisDateTo ? ` · 至 ${analysisDateTo}` : ''}
+                    {trendPrediction.length > 0 ? ` · AI: ${trendPrediction.join(', ')}` : ''}
+                    {timeliness ? ` · 时效: ${timeliness}` : ''}
+                    {sentimentScoreMin !== '' || sentimentScoreMax !== '' ? (
+                      <span>
+                        {' · 情绪: '}
+                        {sentimentScoreMin !== '' ? sentimentScoreMin : '-∞'}
+                        {' ~ '}
+                        {sentimentScoreMax !== '' ? sentimentScoreMax : '+∞'}
+                      </span>
+                    ) : null}
                   </span>
                 </div>
                 <span className="backtest-table-scroll-hint">小屏幕可横向滚动</span>
@@ -545,6 +700,7 @@ const BacktestPage: React.FC = () => {
                       </th>
                       <th className="backtest-table-head-cell">结果</th>
                       <th className="backtest-table-head-cell">状态</th>
+                      <th className="backtest-table-head-cell">使用模型</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -597,6 +753,15 @@ const BacktestPage: React.FC = () => {
                         </td>
                         <td className="backtest-table-cell">{outcomeBadge(row.outcome)}</td>
                         <td className="backtest-table-cell">{statusBadge(row.evalStatus)}</td>
+                        <td className="backtest-table-cell text-secondary-text max-w-[180px]">
+                          {row.modelUsed ? (
+                            <Tooltip content={row.modelUsed} focusable>
+                              <span className="block truncate font-mono text-xs">{row.modelUsed}</span>
+                            </Tooltip>
+                          ) : (
+                            <span className="text-muted-text">--</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

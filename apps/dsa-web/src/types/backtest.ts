@@ -13,6 +13,18 @@ export interface BacktestRunRequest {
   limit?: number;
 }
 
+/** 可用的 AI 趋势预测选项 */
+export const TREND_PREDICTION_OPTIONS = [
+  "强烈看多",
+  "看多",
+  "震荡",
+  "看空",
+  "强烈看空",
+  "震荡偏弱",
+] as const;
+
+export type TrendPrediction = typeof TREND_PREDICTION_OPTIONS[number];
+
 export interface BacktestRunResponse {
   processed: number;
   saved: number;
@@ -34,6 +46,7 @@ export interface BacktestResultItem {
   evaluatedAt?: string;
   operationAdvice?: string;
   trendPrediction?: string;
+  sentimentScore?: number;
   positionRecommendation?: string;
   startPrice?: number;
   endClose?: number;
@@ -56,6 +69,7 @@ export interface BacktestResultItem {
   simulatedExitPrice?: number;
   simulatedExitReason?: string;
   simulatedReturnPct?: number;
+  modelUsed?: string;
 }
 
 export interface BacktestResultsResponse {

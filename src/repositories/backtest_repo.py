@@ -108,10 +108,13 @@ class BacktestRepository:
         engine_version: Optional[str] = None,
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
-        days: Optional[int],
+        time_sensitivity: Optional[str] = None,
+        trend_prediction: Optional[List[str]] = None,
+        sentiment_score_min: Optional[int] = None,
+        sentiment_score_max: Optional[int] = None,
         offset: int,
         limit: int,
-    ) -> Tuple[List[Tuple[BacktestResult, Optional[str], Optional[str], Optional[datetime]]], int]:
+    ) -> Tuple[List[Tuple[BacktestResult, Optional[str], Optional[str], Optional[str], Optional[datetime]]], int]:
         with self.db.get_session() as session:
             conditions = self._build_result_conditions(
                 code=code,
@@ -119,7 +122,10 @@ class BacktestRepository:
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
-                days=days,
+                time_sensitivity=time_sensitivity,
+                trend_prediction=trend_prediction,
+                sentiment_score_min=sentiment_score_min,
+                sentiment_score_max=sentiment_score_max,
             )
 
             where_clause = and_(*conditions) if conditions else True
@@ -135,6 +141,7 @@ class BacktestRepository:
                     BacktestResult,
                     AnalysisHistory.name,
                     AnalysisHistory.trend_prediction,
+                    AnalysisHistory.raw_result,
                     AnalysisHistory.created_at,
                 )
                 .join(AnalysisHistory, AnalysisHistory.id == BacktestResult.analysis_history_id)
@@ -153,7 +160,10 @@ class BacktestRepository:
         engine_version: Optional[str] = None,
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
-        days: Optional[int] = None,
+        time_sensitivity: Optional[str] = None,
+        trend_prediction: Optional[List[str]] = None,
+        sentiment_score_min: Optional[int] = None,
+        sentiment_score_max: Optional[int] = None,
     ) -> int:
         """Return the number of matching BacktestResult rows without loading them."""
         with self.db.get_session() as session:
@@ -163,14 +173,18 @@ class BacktestRepository:
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
-                days=days,
+                time_sensitivity=time_sensitivity,
+                trend_prediction=trend_prediction,
+                sentiment_score_min=sentiment_score_min,
+                sentiment_score_max=sentiment_score_max,
             )
             where_clause = and_(*conditions) if conditions else True
-            count = session.execute(
-                select(func.count(BacktestResult.id))
-                .select_from(BacktestResult)
-                .where(where_clause)
-            ).scalar() or 0
+
+            query = select(func.count(BacktestResult.id)).select_from(BacktestResult)
+            if trend_prediction or sentiment_score_min is not None or sentiment_score_max is not None or time_sensitivity:
+                query = query.join(AnalysisHistory, AnalysisHistory.id == BacktestResult.analysis_history_id)
+
+            count = session.execute(query.where(where_clause)).scalar() or 0
             return int(count)
 
     def list_results(
@@ -181,7 +195,10 @@ class BacktestRepository:
         engine_version: Optional[str] = None,
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
-        days: Optional[int] = None,
+        time_sensitivity: Optional[str] = None,
+        trend_prediction: Optional[List[str]] = None,
+        sentiment_score_min: Optional[int] = None,
+        sentiment_score_max: Optional[int] = None,
         limit: Optional[int] = None,
     ) -> List[BacktestResult]:
         with self.db.get_session() as session:
@@ -191,14 +208,18 @@ class BacktestRepository:
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
-                days=days,
+                time_sensitivity=time_sensitivity,
+                trend_prediction=trend_prediction,
+                sentiment_score_min=sentiment_score_min,
+                sentiment_score_max=sentiment_score_max,
             )
             where_clause = and_(*conditions) if conditions else True
-            query = (
-                select(BacktestResult)
-                .where(where_clause)
-                .order_by(desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
-            )
+
+            query = select(BacktestResult)
+            if trend_prediction or sentiment_score_min is not None or sentiment_score_max is not None or time_sensitivity:
+                query = query.join(AnalysisHistory, AnalysisHistory.id == BacktestResult.analysis_history_id)
+
+            query = query.where(where_clause).order_by(desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
             if limit is not None:
                 query = query.limit(limit)
             rows = session.execute(query).scalars().all()
@@ -308,6 +329,9 @@ class BacktestRepository:
         engine_version: Optional[str] = None,
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
+        trend_prediction: Optional[List[str]] = None,
+        sentiment_score_min: Optional[int] = None,
+        sentiment_score_max: Optional[int] = None,
     ) -> List[int]:
         """Return sorted distinct eval_window_days for matching results."""
         with self.db.get_session() as session:
@@ -317,12 +341,19 @@ class BacktestRepository:
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
-                days=None,
+                time_sensitivity=None,
+                trend_prediction=trend_prediction,
+                sentiment_score_min=sentiment_score_min,
+                sentiment_score_max=sentiment_score_max,
             )
             where_clause = and_(*conditions) if conditions else True
+
+            query = select(BacktestResult.eval_window_days)
+            if trend_prediction or sentiment_score_min is not None or sentiment_score_max is not None:
+                query = query.join(AnalysisHistory, AnalysisHistory.id == BacktestResult.analysis_history_id)
+
             rows = session.execute(
-                select(BacktestResult.eval_window_days)
-                .where(where_clause)
+                query.where(where_clause)
                 .distinct()
                 .order_by(BacktestResult.eval_window_days)
             ).scalars().all()
@@ -336,7 +367,10 @@ class BacktestRepository:
         engine_version: Optional[str],
         analysis_date_from: Optional[date],
         analysis_date_to: Optional[date],
-        days: Optional[int],
+        time_sensitivity: Optional[str] = None,
+        trend_prediction: Optional[List[str]] = None,
+        sentiment_score_min: Optional[int] = None,
+        sentiment_score_max: Optional[int] = None,
     ) -> List[object]:
         conditions = []
         if code:
@@ -349,7 +383,16 @@ class BacktestRepository:
             conditions.append(BacktestResult.analysis_date >= analysis_date_from)
         if analysis_date_to is not None:
             conditions.append(BacktestResult.analysis_date <= analysis_date_to)
-        if days:
-            cutoff = datetime.now() - timedelta(days=int(days))
-            conditions.append(BacktestResult.evaluated_at >= cutoff)
+        if time_sensitivity:
+            conditions.append(
+                func.json_unquote(
+                    func.json_extract(AnalysisHistory.raw_result, '$.dashboard.core_conclusion.time_sensitivity')
+                ) == time_sensitivity
+            )
+        if trend_prediction:
+            conditions.append(AnalysisHistory.trend_prediction.in_(trend_prediction))
+        if sentiment_score_min is not None:
+            conditions.append(AnalysisHistory.sentiment_score >= sentiment_score_min)
+        if sentiment_score_max is not None:
+            conditions.append(AnalysisHistory.sentiment_score <= sentiment_score_max)
         return conditions

@@ -222,18 +222,31 @@ class BacktestService:
         page: int = 1,
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
+        trend_prediction: Optional[List[str]] = None,
+        sentiment_score_min: Optional[int] = None,
+        sentiment_score_max: Optional[int] = None,
+        time_sensitivity: Optional[str] = None,
     ) -> Dict[str, Any]:
         config = get_config()
         engine_version = str(getattr(config, "backtest_engine_version", "v1"))
 
         # When date filters are active and no explicit window is requested,
         # infer the smallest available window to stay aligned with summary metrics.
-        if eval_window_days is None and (analysis_date_from is not None or analysis_date_to is not None):
+        if eval_window_days is None and (
+            analysis_date_from is not None
+            or analysis_date_to is not None
+            or trend_prediction is not None
+            or sentiment_score_min is not None
+            or sentiment_score_max is not None
+        ):
             windows = self.repo.get_distinct_eval_windows(
                 code=code,
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
+                trend_prediction=trend_prediction,
+                sentiment_score_min=sentiment_score_min,
+                sentiment_score_max=sentiment_score_max,
             )
             if windows:
                 eval_window_days = windows[0]
@@ -245,11 +258,14 @@ class BacktestService:
             engine_version=engine_version,
             analysis_date_from=analysis_date_from,
             analysis_date_to=analysis_date_to,
-            days=None,
+            time_sensitivity=time_sensitivity,
+            trend_prediction=trend_prediction,
+            sentiment_score_min=sentiment_score_min,
+            sentiment_score_max=sentiment_score_max,
             offset=offset,
             limit=limit,
         )
-        items = [self._result_to_dict(result, stock_name, trend_prediction) for result, stock_name, trend_prediction, _ in rows]
+        items = [self._result_to_dict(result, stock_name, trend_prediction, raw_result) for result, stock_name, trend_prediction, raw_result, _ in rows]
         return {"total": total, "page": page, "limit": limit, "items": items}
 
     def get_summary(
@@ -260,12 +276,23 @@ class BacktestService:
         eval_window_days: Optional[int] = None,
         analysis_date_from: Optional[date] = None,
         analysis_date_to: Optional[date] = None,
+        trend_prediction: Optional[List[str]] = None,
+        sentiment_score_min: Optional[int] = None,
+        sentiment_score_max: Optional[int] = None,
+        time_sensitivity: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         config = get_config()
         engine_version = str(getattr(config, "backtest_engine_version", "v1"))
         lookup_code = OVERALL_SENTINEL_CODE if scope == "overall" else code
 
-        if analysis_date_from is not None or analysis_date_to is not None:
+        if (
+            analysis_date_from is not None
+            or analysis_date_to is not None
+            or trend_prediction is not None
+            or sentiment_score_min is not None
+            or sentiment_score_max is not None
+            or time_sensitivity is not None
+        ):
             ew = int(eval_window_days) if eval_window_days is not None else None
             count = self.repo.count_results(
                 code=code,
@@ -273,6 +300,10 @@ class BacktestService:
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
+                trend_prediction=trend_prediction,
+                sentiment_score_min=sentiment_score_min,
+                sentiment_score_max=sentiment_score_max,
+                time_sensitivity=time_sensitivity,
             )
             if count > self.MAX_DYNAMIC_SUMMARY_ROWS:
                 raise ValueError(
@@ -284,6 +315,10 @@ class BacktestService:
                 engine_version=engine_version,
                 analysis_date_from=analysis_date_from,
                 analysis_date_to=analysis_date_to,
+                trend_prediction=trend_prediction,
+                sentiment_score_min=sentiment_score_min,
+                sentiment_score_max=sentiment_score_max,
+                time_sensitivity=time_sensitivity,
             )
             return self._build_dynamic_summary(
                 rows=rows,
@@ -438,8 +473,17 @@ class BacktestService:
         row: BacktestResult,
         stock_name: Optional[str] = None,
         trend_prediction: Optional[str] = None,
+        raw_result: Optional[str] = None,
     ) -> Dict[str, Any]:
+        from src.utils.data_processing import normalize_model_used, parse_json_field
+
+        model_used: Optional[str] = None
+        raw = parse_json_field(raw_result) if raw_result else None
+        if isinstance(raw, dict):
+            model_used = normalize_model_used(raw.get("model_used"))
+
         return {
+            "model_used": model_used,
             "analysis_history_id": row.analysis_history_id,
             "code": row.code,
             "stock_name": stock_name,

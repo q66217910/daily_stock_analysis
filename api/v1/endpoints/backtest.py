@@ -8,6 +8,7 @@ from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import List, Optional
 
 from api.deps import get_database_manager
 from api.v1.schemas.backtest import (
@@ -87,6 +88,10 @@ def get_backtest_results(
     eval_window_days: Optional[int] = Query(None, ge=1, le=120, description="评估窗口过滤"),
     analysis_date_from: Optional[date] = Query(None, description="分析日期起始（含）"),
     analysis_date_to: Optional[date] = Query(None, description="分析日期结束（含）"),
+    trend_prediction: Optional[List[str]] = Query(None, description="AI 趋势预测筛选（如：强烈看多、看多、震荡、看空、强烈看空、震荡偏弱）"),
+    sentiment_score_min: Optional[int] = Query(None, ge=-100, le=100, description="情绪评分最小值"),
+    sentiment_score_max: Optional[int] = Query(None, ge=-100, le=100, description="情绪评分最大值"),
+    time_sensitivity: Optional[str] = Query(None, description="时效性筛选：今日内 / 本周内"),
     page: int = Query(1, ge=1, description="页码"),
     limit: int = Query(20, ge=1, le=200, description="每页数量"),
     db_manager: DatabaseManager = Depends(get_database_manager),
@@ -101,6 +106,10 @@ def get_backtest_results(
             page=page,
             analysis_date_from=analysis_date_from,
             analysis_date_to=analysis_date_to,
+            trend_prediction=trend_prediction,
+            sentiment_score_min=sentiment_score_min,
+            sentiment_score_max=sentiment_score_max,
+            time_sensitivity=time_sensitivity,
         )
         items = [BacktestResultItem(**item) for item in data.get("items", [])]
         return BacktestResultsResponse(
@@ -133,6 +142,10 @@ def get_overall_performance(
     eval_window_days: Optional[int] = Query(None, ge=1, le=120, description="评估窗口过滤"),
     analysis_date_from: Optional[date] = Query(None, description="分析日期起始（含）"),
     analysis_date_to: Optional[date] = Query(None, description="分析日期结束（含）"),
+    trend_prediction: Optional[List[str]] = Query(None, description="AI 趋势预测筛选（如：强烈看多、看多、震荡、看空、强烈看空、震荡偏弱）"),
+    sentiment_score_min: Optional[int] = Query(None, ge=-100, le=100, description="情绪评分最小值"),
+    sentiment_score_max: Optional[int] = Query(None, ge=-100, le=100, description="情绪评分最大值"),
+    time_sensitivity: Optional[str] = Query(None, description="时效性筛选：今日内 / 本周内"),
     db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> PerformanceMetrics:
     try:
@@ -144,6 +157,10 @@ def get_overall_performance(
             eval_window_days=eval_window_days,
             analysis_date_from=analysis_date_from,
             analysis_date_to=analysis_date_to,
+            trend_prediction=trend_prediction,
+            sentiment_score_min=sentiment_score_min,
+            sentiment_score_max=sentiment_score_max,
+            time_sensitivity=time_sensitivity,
         )
         if summary is None:
             raise HTTPException(
@@ -181,6 +198,10 @@ def get_stock_performance(
     eval_window_days: Optional[int] = Query(None, ge=1, le=120, description="评估窗口过滤"),
     analysis_date_from: Optional[date] = Query(None, description="分析日期起始（含）"),
     analysis_date_to: Optional[date] = Query(None, description="分析日期结束（含）"),
+    trend_prediction: Optional[List[str]] = Query(None, description="AI 趋势预测筛选（如：强烈看多、看多、震荡、看空、强烈看空、震荡偏弱）"),
+    sentiment_score_min: Optional[int] = Query(None, ge=-100, le=100, description="情绪评分最小值"),
+    sentiment_score_max: Optional[int] = Query(None, ge=-100, le=100, description="情绪评分最大值"),
+    time_sensitivity: Optional[str] = Query(None, description="时效性筛选：今日内 / 本周内"),
     db_manager: DatabaseManager = Depends(get_database_manager),
 ) -> PerformanceMetrics:
     try:
@@ -192,6 +213,10 @@ def get_stock_performance(
             eval_window_days=eval_window_days,
             analysis_date_from=analysis_date_from,
             analysis_date_to=analysis_date_to,
+            trend_prediction=trend_prediction,
+            sentiment_score_min=sentiment_score_min,
+            sentiment_score_max=sentiment_score_max,
+            time_sensitivity=time_sensitivity,
         )
         if summary is None:
             raise HTTPException(

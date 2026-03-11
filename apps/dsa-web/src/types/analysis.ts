@@ -19,6 +19,7 @@ export interface AnalysisRequest {
   selectionSource?: 'manual' | 'autocomplete' | 'import' | 'image';
   notify?: boolean;
   skills?: string[];
+  agentSkills?: string[];
 }
 
 export interface MarketReviewRequest {
@@ -311,6 +312,7 @@ export interface TaskInfo {
   error?: string;
   originalQuery?: string;
   selectionSource?: string;
+  agentSkills?: string[];
 }
 
 /** Task list response */
@@ -347,6 +349,11 @@ export interface HistoryItem {
   volumeRatio?: number;
   turnoverRate?: number;
   modelUsed?: string;  // Display-only model snapshot from persisted history; runtime provider/model/base URL still come from analyzer configuration
+  timeSensitivity?: string;
+  idealBuy?: string;
+  secondaryBuy?: string;
+  stopLoss?: string;
+  takeProfit?: string;
   createdAt: string;
 }
 

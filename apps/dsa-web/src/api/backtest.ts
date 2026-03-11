@@ -8,6 +8,24 @@ import type {
   PerformanceMetrics,
 } from '../types/backtest';
 
+// Helper to build query string with array support
+const buildQueryString = (params: Record<string, any>): string => {
+  const parts: string[] = [];
+  Object.entries(params).forEach(([key, value]) => {
+    if (value == null) return;
+    if (Array.isArray(value)) {
+      value.forEach(v => {
+        if (v != null) {
+          parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
+        }
+      });
+    } else {
+      parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+    }
+  });
+  return parts.length ? `?${parts.join('&')}` : '';
+};
+
 // ============ API ============
 
 export const backtestApi = {
@@ -37,20 +55,28 @@ export const backtestApi = {
     evalWindowDays?: number;
     analysisDateFrom?: string;
     analysisDateTo?: string;
+    trendPrediction?: string[];
+    sentimentScoreMin?: number;
+    sentimentScoreMax?: number;
+    timeSensitivity?: string;
     page?: number;
     limit?: number;
   } = {}): Promise<BacktestResultsResponse> => {
-    const { code, evalWindowDays, analysisDateFrom, analysisDateTo, page = 1, limit = 20 } = params;
+    const { code, evalWindowDays, analysisDateFrom, analysisDateTo, trendPrediction, sentimentScoreMin, sentimentScoreMax, timeSensitivity, page = 1, limit = 20 } = params;
 
-    const queryParams: Record<string, string | number> = { page, limit };
+    const queryParams: Record<string, any> = { page, limit };
     if (code) queryParams.code = code;
     if (evalWindowDays) queryParams.eval_window_days = evalWindowDays;
     if (analysisDateFrom) queryParams.analysis_date_from = analysisDateFrom;
     if (analysisDateTo) queryParams.analysis_date_to = analysisDateTo;
+    if (trendPrediction && trendPrediction.length > 0) queryParams.trend_prediction = trendPrediction;
+    if (sentimentScoreMin != null) queryParams.sentiment_score_min = sentimentScoreMin;
+    if (sentimentScoreMax != null) queryParams.sentiment_score_max = sentimentScoreMax;
+    if (timeSensitivity) queryParams.time_sensitivity = timeSensitivity;
 
+    const queryString = buildQueryString(queryParams);
     const response = await apiClient.get<Record<string, unknown>>(
-      '/api/v1/backtest/results',
-      { params: queryParams },
+      `/api/v1/backtest/results${queryString}`,
     );
 
     const data = toCamelCase<BacktestResultsResponse>(response.data);
@@ -69,15 +95,23 @@ export const backtestApi = {
     evalWindowDays?: number;
     analysisDateFrom?: string;
     analysisDateTo?: string;
+    trendPrediction?: string[];
+    sentimentScoreMin?: number;
+    sentimentScoreMax?: number;
+    timeSensitivity?: string;
   } = {}): Promise<PerformanceMetrics | null> => {
     try {
-      const queryParams: Record<string, string | number> = {};
+      const queryParams: Record<string, any> = {};
       if (params.evalWindowDays) queryParams.eval_window_days = params.evalWindowDays;
       if (params.analysisDateFrom) queryParams.analysis_date_from = params.analysisDateFrom;
       if (params.analysisDateTo) queryParams.analysis_date_to = params.analysisDateTo;
+      if (params.trendPrediction && params.trendPrediction.length > 0) queryParams.trend_prediction = params.trendPrediction;
+      if (params.sentimentScoreMin != null) queryParams.sentiment_score_min = params.sentimentScoreMin;
+      if (params.sentimentScoreMax != null) queryParams.sentiment_score_max = params.sentimentScoreMax;
+      if (params.timeSensitivity) queryParams.time_sensitivity = params.timeSensitivity;
+      const queryString = buildQueryString(queryParams);
       const response = await apiClient.get<Record<string, unknown>>(
-        '/api/v1/backtest/performance',
-        { params: queryParams },
+        `/api/v1/backtest/performance${queryString}`,
       );
       return toCamelCase<PerformanceMetrics>(response.data);
     } catch (err: unknown) {
@@ -96,15 +130,23 @@ export const backtestApi = {
     evalWindowDays?: number;
     analysisDateFrom?: string;
     analysisDateTo?: string;
+    trendPrediction?: string[];
+    sentimentScoreMin?: number;
+    sentimentScoreMax?: number;
+    timeSensitivity?: string;
   } = {}): Promise<PerformanceMetrics | null> => {
     try {
-      const queryParams: Record<string, string | number> = {};
+      const queryParams: Record<string, any> = {};
       if (params.evalWindowDays) queryParams.eval_window_days = params.evalWindowDays;
       if (params.analysisDateFrom) queryParams.analysis_date_from = params.analysisDateFrom;
       if (params.analysisDateTo) queryParams.analysis_date_to = params.analysisDateTo;
+      if (params.trendPrediction && params.trendPrediction.length > 0) queryParams.trend_prediction = params.trendPrediction;
+      if (params.sentimentScoreMin != null) queryParams.sentiment_score_min = params.sentimentScoreMin;
+      if (params.sentimentScoreMax != null) queryParams.sentiment_score_max = params.sentimentScoreMax;
+      if (params.timeSensitivity) queryParams.time_sensitivity = params.timeSensitivity;
+      const queryString = buildQueryString(queryParams);
       const response = await apiClient.get<Record<string, unknown>>(
-        `/api/v1/backtest/performance/${encodeURIComponent(code)}`,
-        { params: queryParams },
+        `/api/v1/backtest/performance/${encodeURIComponent(code)}${queryString}`,
       );
       return toCamelCase<PerformanceMetrics>(response.data);
     } catch (err: unknown) {

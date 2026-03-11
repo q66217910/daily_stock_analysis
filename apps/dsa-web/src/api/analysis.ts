@@ -32,6 +32,7 @@ export const analysisApi = {
       selection_source: data.selectionSource,
       skills: data.skills,
       ...(data.notify !== undefined && { notify: data.notify }),
+      ...(data.agentSkills && { agent_skills: data.agentSkills }),
     };
 
     const response = await apiClient.post<Record<string, unknown>>(
@@ -66,6 +67,7 @@ export const analysisApi = {
       selection_source: data.selectionSource,
       skills: data.skills,
       ...(data.notify !== undefined && { notify: data.notify }),
+      ...(data.agentSkills && { agent_skills: data.agentSkills }),
     };
 
     const response = await apiClient.post<Record<string, unknown>>(

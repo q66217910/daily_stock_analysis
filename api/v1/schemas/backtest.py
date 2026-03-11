@@ -57,6 +57,7 @@ class BacktestResultItem(BaseModel):
     simulated_exit_price: Optional[float] = None
     simulated_exit_reason: Optional[str] = None
     simulated_return_pct: Optional[float] = None
+    model_used: Optional[str] = Field(None, description="分析使用的 LLM 模型")
 
 
 class BacktestResultsResponse(BaseModel):

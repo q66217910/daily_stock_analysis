@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { BarChart3, Bell, BriefcaseBusiness, Home, LogOut, MessageSquareQuote, Search, Settings2 } from 'lucide-react';
+import { BarChart3, Bell, BriefcaseBusiness, Home, History, LogOut, MessageSquareQuote, Search, Settings2, Eye, Layers, FileText } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { ALPHASIFT_CONFIG_CHANGED_EVENT, SYSTEM_CONFIG_CHANGED_EVENT, alphasiftApi } from '../../api/alphasift';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,7 +28,11 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'home', label: '首页', to: '/', icon: Home, exact: true },
   { key: 'chat', label: '问股', to: '/chat', icon: MessageSquareQuote, badge: 'completion' },
   { key: 'screening', label: '选股', to: '/screening', icon: Search },
+  { key: 'history', label: '历史', to: '/history', icon: History },
+  { key: 'price-monitor', label: '盯盘', to: '/price-monitor', icon: Eye },
   { key: 'portfolio', label: '持仓', to: '/portfolio', icon: BriefcaseBusiness },
+  { key: 'batch-analysis', label: '批量', to: '/batch-analysis', icon: Layers },
+  { key: 'report-extract', label: '提取', to: '/report-extract', icon: FileText },
   { key: 'backtest', label: '回测', to: '/backtest', icon: BarChart3 },
   { key: 'alerts', label: '告警', to: '/alerts', icon: Bell },
   { key: 'settings', label: '设置', to: '/settings', icon: Settings2 },

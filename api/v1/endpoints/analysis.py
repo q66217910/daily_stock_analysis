@@ -351,6 +351,7 @@ def _handle_async_analysis_batch(
         report_type=request.report_type,
         force_refresh=request.force_refresh,
         notify=notify,
+        agent_skills=request.agent_skills,
     )
     if skills is not None:
         submit_kwargs["skills"] = skills
@@ -618,6 +619,7 @@ def get_task_list(
             error=t.error,
             original_query=t.original_query,
             selection_source=t.selection_source,
+            agent_skills=t.agent_skills,
         )
         for t in all_tasks
     ]

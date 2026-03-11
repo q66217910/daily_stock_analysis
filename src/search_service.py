@@ -116,7 +116,7 @@ class SearchResult:
     relevance_score: Optional[int] = None
     relevance_category: Optional[str] = None
     relevance_reasons: Optional[List[str]] = None
-    
+
     def to_text(self) -> str:
         """转换为文本格式"""
         date_str = f" ({self.published_date})" if self.published_date else ""
