@@ -1,9 +1,12 @@
 import type React from 'react';
-import { Badge } from '../common';
+import { useState } from 'react';
+import { Badge, Button } from '../common';
 import type { HistoryItem } from '../../types/analysis';
 import { getSentimentColor } from '../../types/analysis';
 import { formatDateTime } from '../../utils/format';
 import { truncateStockName, isStockNameTruncated } from '../../utils/stockName';
+import { priceMonitorApi } from '../../api/price_monitor';
+import { Eye } from 'lucide-react';
 
 interface HistoryListItemProps {
   item: HistoryItem;
@@ -12,6 +15,7 @@ interface HistoryListItemProps {
   isDeleting: boolean;
   onToggleChecked: (recordId: number) => void;
   onClick: (recordId: number) => void;
+  onAddToWatchSuccess?: () => void;
 }
 
 const getOperationBadgeLabel = (advice?: string) => {
@@ -41,10 +45,56 @@ export const HistoryListItem: React.FC<HistoryListItemProps> = ({
   isDeleting,
   onToggleChecked,
   onClick,
+  onAddToWatchSuccess,
 }) => {
   const sentimentColor = item.sentimentScore !== undefined ? getSentimentColor(item.sentimentScore) : null;
   const stockName = item.stockName || item.stockCode;
   const isTruncated = isStockNameTruncated(stockName);
+  const [isAddingToWatch, setIsAddingToWatch] = useState(false);
+  const [addToWatchSuccess, setAddToWatchSuccess] = useState(false);
+
+  // 解析价格字符串（处理 "123.45" 或 "¥123.45" 或 "123.45元" 等格式
+  const parsePrice = (priceStr?: string): number | undefined => {
+    if (!priceStr) return undefined;
+    const match = priceStr.match(/[\d.]+/);
+    if (!match) return undefined;
+    const num = parseFloat(match[0]);
+    return isNaN(num) ? undefined : num;
+  };
+
+  const handleAddToWatch = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isAddingToWatch) return;
+
+    const idealBuy = parsePrice(item.idealBuy);
+    if (!idealBuy || item.sentimentScore === undefined) {
+      return;
+    }
+
+    setIsAddingToWatch(true);
+    try {
+      await priceMonitorApi.addWatchingStock({
+        code: item.stockCode,
+        name: item.stockName,
+        sentiment_score: item.sentimentScore,
+        ideal_buy: idealBuy,
+        secondary_buy: parsePrice(item.secondaryBuy),
+        stop_loss: parsePrice(item.stopLoss),
+        take_profit: parsePrice(item.takeProfit),
+        analysis_history_id: item.id,
+      });
+      setAddToWatchSuccess(true);
+      setTimeout(() => setAddToWatchSuccess(false), 2000);
+      onAddToWatchSuccess?.();
+    } catch (error) {
+      console.error('Failed to add to watch list:', error);
+    } finally {
+      setIsAddingToWatch(false);
+    }
+  };
+
+  // 检查是否可以加入盯盘（需要有理想买入价和评分）
+  const canAddToWatch = item.sentimentScore !== undefined && parsePrice(item.idealBuy) !== undefined;
 
   return (
     <div className="flex items-start gap-2 group">
@@ -113,6 +163,28 @@ export const HistoryListItem: React.FC<HistoryListItemProps> = ({
           </div>
         </div>
       </button>
+      {/* 加入盯盘按钮 */}
+      <div className="pt-4 pr-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+        {canAddToWatch ? (
+          <Button
+            variant="ghost"
+            size="xsm"
+            onClick={handleAddToWatch}
+            isLoading={isAddingToWatch}
+            disabled={isDeleting}
+            className="!px-2 !py-1 text-xs"
+            title="加入盯盘"
+          >
+            {addToWatchSuccess ? (
+              <svg className="h-3.5 w-3.5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <Eye className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 };

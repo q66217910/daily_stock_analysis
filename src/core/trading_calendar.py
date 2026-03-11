@@ -13,7 +13,8 @@
 """
 
 import logging
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, time
 from typing import Optional, Set
 from zoneinfo import ZoneInfo
 
@@ -212,3 +213,145 @@ def compute_effective_region(
     if len(parts) == 1:
         return parts[0]
     return ",".join(parts)
+
+
+# ============================================
+# 交易时段判断
+# ============================================
+
+@dataclass
+class TradingSession:
+    """交易时段定义"""
+    start: datetime.time
+    end: datetime.time
+
+
+# 各市场交易时段（本地时间）
+MARKET_TRADING_SESSIONS = {
+    "cn": [
+        # A股: 9:30-11:30, 13:00-15:00
+        TradingSession(start=time(9, 30), end=time(11, 30)),
+        TradingSession(start=time(13, 0), end=time(15, 0)),
+    ],
+    "hk": [
+        # 港股: 9:30-12:00, 13:00-16:00
+        TradingSession(start=time(9, 30), end=time(12, 0)),
+        TradingSession(start=time(13, 0), end=time(16, 0)),
+    ],
+    "us": [
+        # 美股(NYSE): 9:30-16:00 (东部时间)
+        TradingSession(start=time(9, 30), end=time(16, 0)),
+    ],
+}
+
+
+def is_in_trading_hours(
+    market: str,
+    check_time: Optional[datetime] = None
+) -> bool:
+    """
+    检查指定市场当前是否在交易时段内
+
+    Args:
+        market: 'cn' | 'hk' | 'us'
+        check_time: 检查时间（None表示当前时间）
+
+    Returns:
+        True 如果在交易时段内，否则返回False
+    """
+    sessions = MARKET_TRADING_SESSIONS.get(market)
+    if not sessions:
+        # 未知市场，默认认为在交易时间（fail-open）
+        return True
+
+    # 获取市场本地时间
+    market_time = get_market_now(market, check_time)
+    check_time_today = market_time.time()
+    check_weekday = market_time.weekday()
+
+    # 周末不交易
+    if check_weekday >= 5:  # 5=周六, 6=周日
+        return False
+
+    # 检查是否在任何一个交易时段内
+    for session in sessions:
+        if session.start <= check_time_today <= session.end:
+            return True
+
+    return False
+
+
+def is_any_market_in_trading_hours(
+    check_time: Optional[datetime] = None
+) -> bool:
+    """
+    检查是否有任何一个市场（A股/港股/美股）当前在交易时段内
+
+    Args:
+        check_time: 检查时间（None表示当前时间）
+
+    Returns:
+        True 如果有任何市场在交易时段内
+    """
+    for market in ["cn", "hk", "us"]:
+        if is_in_trading_hours(market, check_time):
+            return True
+    return False
+
+
+def get_current_trading_markets(
+    check_time: Optional[datetime] = None
+) -> Set[str]:
+    """
+    获取当前在交易时段内的市场集合
+
+    Args:
+        check_time: 检查时间（None表示当前时间）
+
+    Returns:
+        正在交易的市场集合 {'cn', 'hk', 'us'}
+    """
+    result: Set[str] = set()
+    for market in ["cn", "hk", "us"]:
+        if is_in_trading_hours(market, check_time):
+            result.add(market)
+    return result
+
+
+def get_next_trading_start(
+    market: str,
+    from_time: Optional[datetime] = None
+) -> Optional[datetime]:
+    """
+    获取下一个交易开始时间
+
+    Args:
+        market: 'cn' | 'hk' | 'us'
+        from_time: 起始时间（None表示当前时间）
+
+    Returns:
+        下一个交易开始时间，如果无法计算返回None
+    """
+    sessions = MARKET_TRADING_SESSIONS.get(market)
+    if not sessions:
+        return None
+
+    market_time = get_market_now(market, from_time)
+    tz = market_time.tzinfo
+    check_time_today = market_time.time()
+
+    # 先看今天剩下的时段
+    for session in sessions:
+        if check_time_today < session.start:
+            return datetime.combine(market_time.date(), session.start, tzinfo=tz)
+
+    # 今天没有剩余时段，找下一个交易日的第一个时段
+    days_to_add = 1
+    while days_to_add <= 14:  # 最多查两周
+        next_date = market_time.date() + timedelta(days=days_to_add)
+        if is_market_open(market, next_date):
+            first_session = sessions[0]
+            return datetime.combine(next_date, first_session.start, tzinfo=tz)
+        days_to_add += 1
+
+    return None

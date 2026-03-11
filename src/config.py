@@ -701,7 +701,7 @@ class Config:
     feishu_webhook_url: Optional[str] = None
     feishu_webhook_secret: Optional[str] = None  # 自定义机器人签名密钥（可选）
     feishu_webhook_keyword: Optional[str] = None  # 自定义机器人关键词（可选）
-    
+
     # Telegram 配置（需要同时配置 Bot Token 和 Chat ID）
     telegram_bot_token: Optional[str] = None  # Bot Token（@BotFather 获取）
     telegram_chat_id: Optional[str] = None  # Chat ID
@@ -788,6 +788,14 @@ class Config:
 
     # === 数据库配置 ===
     database_path: str = "./data/stock_analysis.db"
+    # MySQL 数据库配置（如果设置了 database_url 则优先使用，否则使用 SQLite）
+    database_type: str = "sqlite"  # sqlite 或 mysql
+    database_host: Optional[str] = None
+    database_port: Optional[int] = None
+    database_name: Optional[str] = None
+    database_username: Optional[str] = None
+    database_password: Optional[str] = None
+    database_url: Optional[str] = None  # 完整的数据库连接 URL（优先级最高）
     sqlite_wal_enabled: bool = True
     sqlite_busy_timeout_ms: int = 5000
     sqlite_write_retry_max: int = 3
@@ -1450,25 +1458,13 @@ class Config:
             md2img_engine=cls._parse_md2img_engine(os.getenv('MD2IMG_ENGINE', 'wkhtmltoimage')),
             prefetch_realtime_quotes=os.getenv('PREFETCH_REALTIME_QUOTES', 'true').lower() == 'true',
             database_path=os.getenv('DATABASE_PATH', './data/stock_analysis.db'),
-            sqlite_wal_enabled=os.getenv('SQLITE_WAL_ENABLED', 'true').lower() == 'true',
-            sqlite_busy_timeout_ms=parse_env_int(
-                os.getenv('SQLITE_BUSY_TIMEOUT_MS'),
-                5000,
-                field_name='SQLITE_BUSY_TIMEOUT_MS',
-                minimum=0,
-            ),
-            sqlite_write_retry_max=parse_env_int(
-                os.getenv('SQLITE_WRITE_RETRY_MAX'),
-                3,
-                field_name='SQLITE_WRITE_RETRY_MAX',
-                minimum=0,
-            ),
-            sqlite_write_retry_base_delay=parse_env_float(
-                os.getenv('SQLITE_WRITE_RETRY_BASE_DELAY'),
-                0.1,
-                field_name='SQLITE_WRITE_RETRY_BASE_DELAY',
-                minimum=0.0,
-            ),
+            database_type=os.getenv('DATABASE_TYPE', 'sqlite').lower(),
+            database_host=os.getenv('DATABASE_HOST'),
+            database_port=parse_env_int(os.getenv('DATABASE_PORT'), 3306, field_name='DATABASE_PORT', minimum=1, maximum=65535) if os.getenv('DATABASE_PORT') else None,
+            database_name=os.getenv('DATABASE_NAME'),
+            database_username=os.getenv('DATABASE_USERNAME'),
+            database_password=os.getenv('DATABASE_PASSWORD'),
+            database_url=os.getenv('DATABASE_URL'),
             save_context_snapshot=os.getenv('SAVE_CONTEXT_SNAPSHOT', 'true').lower() == 'true',
             backtest_enabled=os.getenv('BACKTEST_ENABLED', 'true').lower() == 'true',
             backtest_eval_window_days=parse_env_int(os.getenv('BACKTEST_EVAL_WINDOW_DAYS'), 10, field_name='BACKTEST_EVAL_WINDOW_DAYS', minimum=1),
@@ -2453,9 +2449,36 @@ class Config:
     def get_db_url(self) -> str:
         """
         获取 SQLAlchemy 数据库连接 URL
-        
-        自动创建数据库目录（如果不存在）
+
+        优先级：
+        1. database_url (完整连接URL)
+        2. MySQL 配置 (database_type=mysql)
+        3. SQLite (默认)
+
+        自动创建数据库目录（如果是SQLite）
         """
+        # 1. 优先使用完整的 database_url
+        if self.database_url:
+            return self.database_url
+
+        # 2. 使用 MySQL 配置
+        if self.database_type == "mysql":
+            if not all([self.database_host, self.database_name, self.database_username, self.database_password]):
+                raise ValueError(
+                    "MySQL 配置不完整，请设置: DATABASE_HOST, DATABASE_NAME, "
+                    "DATABASE_USERNAME, DATABASE_PASSWORD"
+                )
+            port = self.database_port or 3306
+            # 对密码中的特殊字符进行 URL 编码
+            from urllib.parse import quote_plus
+            password_encoded = quote_plus(self.database_password)
+            return (
+                f"mysql+pymysql://{self.database_username}:{password_encoded}"
+                f"@{self.database_host}:{port}/{self.database_name}"
+                f"?charset=utf8mb4"
+            )
+
+        # 3. 默认使用 SQLite
         db_path = Path(self.database_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{db_path.absolute()}"

@@ -27,8 +27,14 @@ class HistoryItem(BaseModel):
         description="情绪评分（历史数据可能超出 0-100 范围，读取时不做约束）",
     )
     operation_advice: Optional[str] = Field(None, description="操作建议")
+    trend_prediction: Optional[str] = Field(None, description="趋势预测")
+    time_sensitivity: Optional[str] = Field(None, description="时效性")
+    ideal_buy: Optional[str] = Field(None, description="理想买入价")
+    secondary_buy: Optional[str] = Field(None, description="第二买入价")
+    stop_loss: Optional[str] = Field(None, description="止损价")
+    take_profit: Optional[str] = Field(None, description="止盈价")
     created_at: Optional[str] = Field(None, description="创建时间")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -39,6 +45,11 @@ class HistoryItem(BaseModel):
                 "report_type": "detailed",
                 "sentiment_score": 75,
                 "operation_advice": "持有",
+                "trend_prediction": "看多",
+                "ideal_buy": "1800.00",
+                "secondary_buy": "1750.00",
+                "stop_loss": "1700.00",
+                "take_profit": "2000.00",
                 "created_at": "2024-01-01T12:00:00"
             }
         }

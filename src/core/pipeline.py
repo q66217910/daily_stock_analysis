@@ -232,7 +232,13 @@ class StockAnalysisPipeline:
             logger.error(f"{stock_name}({code}) {error_msg}")
             return False, error_msg
     
-    def analyze_stock(self, code: str, report_type: ReportType, query_id: str) -> Optional[AnalysisResult]:
+    def analyze_stock(
+        self,
+        code: str,
+        report_type: ReportType,
+        query_id: str,
+        agent_skills: Optional[List[str]] = None,
+    ) -> Optional[AnalysisResult]:
         """
         分析单只股票（增强版：含量比、换手率、筹码分析、多维度情报）
         
@@ -296,18 +302,19 @@ class StockAnalysisPipeline:
             except Exception as e:
                 logger.warning(f"{stock_name}({code}) 获取筹码分布失败: {e}")
 
-            # If agent mode is explicitly enabled, or specific agent skills are configured, use the Agent analysis pipeline.
+            # If agent mode is explicitly enabled, or specific agent skills are configured/passed, use the Agent analysis pipeline.
             # NOTE: use config.agent_mode (explicit opt-in) instead of
             # config.is_agent_available() so that users who only configured an
             # API Key for the traditional analysis path are not silently
             # switched to Agent mode (which is slower and more expensive).
             use_agent = getattr(self.config, 'agent_mode', False)
+            # Determine which skills to use: prioritize passed agent_skills over config
+            effective_skills = agent_skills if agent_skills is not None else getattr(self.config, 'agent_skills', [])
             if not use_agent:
-                # Auto-enable agent mode when specific skills are configured (e.g., scheduled task with strategy)
-                configured_skills = getattr(self.config, 'agent_skills', [])
-                if configured_skills and configured_skills != ['all']:
+                # Auto-enable agent mode when specific skills are passed or configured (e.g., scheduled task with strategy)
+                if effective_skills and effective_skills != ['all']:
                     use_agent = True
-                    logger.info(f"{stock_name}({code}) Auto-enabled agent mode due to configured skills: {configured_skills}")
+                    logger.info(f"{stock_name}({code}) Auto-enabled agent mode due to skills: {effective_skills}")
 
             self._emit_progress(32, f"{stock_name}：正在聚合基本面与趋势数据")
 
@@ -373,6 +380,7 @@ class StockAnalysisPipeline:
                     chip_data,
                     fundamental_context,
                     trend_result,
+                    effective_skills,
                 )
 
             # Step 4: 多维度情报搜索（最新消息+风险排查+业绩预期）
@@ -759,15 +767,16 @@ class StockAnalysisPipeline:
             logger.warning("[%s] Agent history prefetch failed: %s", code, e)
 
     def _analyze_with_agent(
-        self, 
-        code: str, 
-        report_type: ReportType, 
+        self,
+        code: str,
+        report_type: ReportType,
         query_id: str,
         stock_name: str,
         realtime_quote: Any,
         chip_data: Optional[ChipDistribution],
         fundamental_context: Optional[Dict[str, Any]] = None,
         trend_result: Optional[TrendAnalysisResult] = None,
+        agent_skills: Optional[List[str]] = None,
     ) -> Optional[AnalysisResult]:
         """
         使用 Agent 模式分析单只股票。
@@ -777,7 +786,9 @@ class StockAnalysisPipeline:
             report_language = normalize_report_language(getattr(self.config, "report_language", "zh"))
 
             # Build executor from shared factory (ToolRegistry and SkillManager prototype are cached)
-            executor = build_agent_executor(self.config, getattr(self.config, 'agent_skills', None) or None)
+            # Use passed agent_skills if provided, otherwise fall back to config
+            skills_to_use = agent_skills if agent_skills is not None else getattr(self.config, 'agent_skills', None)
+            executor = build_agent_executor(self.config, skills_to_use)
 
             # Build initial context to avoid redundant tool calls
             initial_context = {
@@ -1264,6 +1275,7 @@ class StockAnalysisPipeline:
         report_type: ReportType = ReportType.SIMPLE,
         analysis_query_id: Optional[str] = None,
         current_time: Optional[datetime] = None,
+        agent_skills: Optional[List[str]] = None,
     ) -> Optional[AnalysisResult]:
         """
         处理单只股票的完整流程
@@ -1283,6 +1295,7 @@ class StockAnalysisPipeline:
             single_stock_notify: 是否启用单股推送模式（每分析完一只立即推送）
             report_type: 报告类型枚举（从配置读取，Issue #119）
             current_time: 本轮运行冻结的参考时间，用于统一断点续传目标交易日判断
+            agent_skills: Optional list of skill IDs to use for Agent analysis
 
         Returns:
             AnalysisResult 或 None
@@ -1298,20 +1311,25 @@ class StockAnalysisPipeline:
             success, error = self.fetch_and_save_stock_data(
                 code, current_time=current_time
             )
-            
+
             if not success:
                 logger.warning(f"[{code}] 数据获取失败: {error}")
                 # 即使获取失败，也尝试用已有数据分析
             else:
                 self._emit_progress(16, f"{code}：行情数据准备完成")
-            
+
             # Step 2: AI 分析
             if skip_analysis:
                 logger.info(f"[{code}] 跳过 AI 分析（dry-run 模式）")
                 return None
-            
+
             effective_query_id = analysis_query_id or self.query_id or uuid.uuid4().hex
-            result = self.analyze_stock(code, report_type, query_id=effective_query_id)
+            result = self.analyze_stock(
+                code,
+                report_type,
+                query_id=effective_query_id,
+                agent_skills=agent_skills,
+            )
             
             if result and result.success:
                 logger.info(
@@ -1339,7 +1357,7 @@ class StockAnalysisPipeline:
             return None
         finally:
             reset_frozen_target_date(token)
-    
+
     def run(
         self,
         stock_codes: Optional[List[str]] = None,

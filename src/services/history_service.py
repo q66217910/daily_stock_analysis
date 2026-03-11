@@ -67,18 +67,22 @@ class HistoryService:
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         page: int = 1,
-        limit: int = 20
+        limit: int = 20,
+        daily_dedup: bool = False,
+        sort_by: str = 'created_at'
     ) -> Dict[str, Any]:
         """
         Get history analysis list.
-        
+
         Args:
             stock_code: Stock code filter
             start_date: Start date (YYYY-MM-DD)
             end_date: End date (YYYY-MM-DD)
             page: Page number
             limit: Items per page
-            
+            daily_dedup: 是否按天去重（同一天同一股票只保留最新一条）
+            sort_by: 排序字段 ('sentiment_score' 或 'created_at')
+
         Returns:
             Dictionary containing total count and items
         """
@@ -86,34 +90,50 @@ class HistoryService:
             # Parse date parameters
             start_dt = None
             end_dt = None
-            
+
             if start_date:
                 try:
                     start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
                 except ValueError:
                     logger.warning(f"无效的 start_date 格式: {start_date}")
-            
+
             if end_date:
                 try:
                     end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
                 except ValueError:
                     logger.warning(f"无效的 end_date 格式: {end_date}")
-            
+
             # Calculate offset
             offset = (page - 1) * limit
-            
-            # Use new paginated query method
-            records, total = self.db.get_analysis_history_paginated(
-                code=stock_code,
-                start_date=start_dt,
-                end_date=end_dt,
-                offset=offset,
-                limit=limit
-            )
+
+            # 使用去重查询或普通查询
+            if daily_dedup:
+                records, total = self.db.get_analysis_history_daily_paginated(
+                    code=stock_code,
+                    start_date=start_dt,
+                    end_date=end_dt,
+                    offset=offset,
+                    limit=limit,
+                    sort_by=sort_by
+                )
+            else:
+                records, total = self.db.get_analysis_history_paginated(
+                    code=stock_code,
+                    start_date=start_dt,
+                    end_date=end_dt,
+                    offset=offset,
+                    limit=limit,
+                    sort_by=sort_by
+                )
             
             # Convert to response format
             items = []
             for record in records:
+                # Get sniper points
+                raw_result = parse_json_field(record.raw_result)
+                sniper_points = self._get_display_sniper_points(record, raw_result)
+                time_sensitivity = self._get_time_sensitivity(raw_result)
+
                 items.append({
                     "id": record.id,
                     "query_id": record.query_id,
@@ -122,6 +142,12 @@ class HistoryService:
                     "report_type": record.report_type,
                     "sentiment_score": record.sentiment_score,
                     "operation_advice": record.operation_advice,
+                    "trend_prediction": record.trend_prediction,
+                    "time_sensitivity": time_sensitivity,
+                    "ideal_buy": sniper_points.get("ideal_buy"),
+                    "secondary_buy": sniper_points.get("secondary_buy"),
+                    "stop_loss": sniper_points.get("stop_loss"),
+                    "take_profit": sniper_points.get("take_profit"),
                     "created_at": record.created_at.isoformat() if record.created_at else None,
                 })
             
@@ -228,6 +254,20 @@ class HistoryService:
         if not text or text in {"-", "—", "N/A"}:
             return None
         return text
+
+    def _get_time_sensitivity(self, raw_result: Any) -> Optional[str]:
+        """Extract time sensitivity from raw result."""
+        if not isinstance(raw_result, dict):
+            return None
+        for candidate in (raw_result.get("dashboard"), raw_result):
+            if not isinstance(candidate, dict):
+                continue
+            core_conclusion = candidate.get("core_conclusion")
+            if isinstance(core_conclusion, dict):
+                time_sense = core_conclusion.get("time_sensitivity")
+                if time_sense:
+                    return str(time_sense).strip()
+        return None
 
     def _get_display_sniper_points(self, record, raw_result: Any) -> Dict[str, Optional[str]]:
         """Prefer raw dashboard sniper strings for history display, then fall back to numeric DB columns."""
@@ -916,3 +956,94 @@ class HistoryService:
                 lines.append(f"| {label} | {formatted} |")
 
         lines.extend(["", "---", ""])
+
+    def get_batch_markdown_report(
+        self,
+        analysis_date: Optional[str] = None,
+        daily_dedup: bool = True
+    ) -> str:
+        """
+        Generate a batch Markdown report containing all stocks from a specific date.
+
+        Args:
+            analysis_date: Analysis date in YYYY-MM-DD format (defaults to today)
+            daily_dedup: Whether to deduplicate by day (same stock only keeps latest)
+
+        Returns:
+            Combined Markdown report string
+        """
+        from datetime import datetime
+
+        # Parse date or use today
+        if analysis_date:
+            try:
+                target_date = datetime.strptime(analysis_date, "%Y-%m-%d").date()
+            except ValueError:
+                logger.warning(f"Invalid analysis_date format: {analysis_date}, using today")
+                target_date = datetime.now().date()
+        else:
+            target_date = datetime.now().date()
+
+        # Get all records for the date
+        records, total = self.db.get_analysis_history_daily_paginated(
+            start_date=target_date,
+            end_date=target_date,
+            offset=0,
+            limit=1000,  # Large limit to get all
+            sort_by='sentiment_score'
+        )
+
+        if total == 0:
+            return f"# 📊 股票分析报告 - {target_date.strftime('%Y-%m-%d')}\n\n暂无分析数据。"
+
+        # Generate header
+        date_str = target_date.strftime('%Y-%m-%d')
+        report_lines = [
+            f"# 📊 股票分析报告 - {date_str}",
+            "",
+            f"> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"> 股票数量: {len(records)}",
+            "",
+            "---",
+            "",
+        ]
+
+        # Add table of contents (stock list)
+        report_lines.extend([
+            "## 📋 目录",
+            "",
+        ])
+        for idx, record in enumerate(records, 1):
+            name_escaped = self._escape_md(record.name or record.code)
+            report_lines.append(f"{idx}. [{name_escaped} ({record.code})](#{idx}-{name_escaped.lower()}-{record.code.lower()})")
+        report_lines.extend(["", "---", ""])
+
+        # Add each stock report
+        for idx, record in enumerate(records, 1):
+            try:
+                # Get single stock markdown
+                single_markdown = self.get_markdown_report(str(record.id))
+                if single_markdown:
+                    # Add section anchor
+                    name_escaped = self._escape_md(record.name or record.code)
+                    report_lines.extend([
+                        f"## <a id=\"{idx}-{name_escaped.lower()}-{record.code.lower()}\"></a>{idx}. {name_escaped} ({record.code})",
+                        "",
+                    ])
+                    # Skip the first line (original header) and add the rest
+                    lines = single_markdown.split('\n')[1:]
+                    report_lines.extend(lines)
+                    report_lines.extend(["", "---", ""])
+            except Exception as e:
+                logger.error(f"Failed to generate markdown for record {record.id}: {e}", exc_info=True)
+                name_escaped = self._escape_md(record.name or record.code)
+                report_lines.extend([
+                    f"## {idx}. {name_escaped} ({record.code})",
+                    "",
+                    f"*生成报告失败: {str(e)}*",
+                    "",
+                    "---",
+                    "",
+                ])
+
+        return "\n".join(report_lines)

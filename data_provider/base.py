@@ -325,6 +325,18 @@ class BaseFetcher(ABC):
         """
         return None
 
+    def get_belong_board(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """
+        获取股票所属板块
+
+        Args:
+            stock_code: 股票代码
+
+        Returns:
+            DataFrame: 所属板块信息，包含板块名称、代码、涨跌幅等
+        """
+        return None
+
     def get_daily_data(
         self,
         stock_code: str, 
@@ -840,7 +852,7 @@ class DataFetcherManager:
             board_name = str(raw_data).strip()
             return [{"name": board_name}]
         return []
-    
+
     def _init_default_fetchers(self) -> None:
         """
         初始化默认数据源列表
@@ -1193,7 +1205,7 @@ class DataFetcherManager:
             if log_final_failure:
                 logger.info(f"[实时行情] {market_label} {stock_code} 无可用数据源")
             return None
-        
+
         # 获取配置的数据源优先级
         source_priority = config.realtime_source_priority.split(',')
         
@@ -1413,7 +1425,7 @@ class DataFetcherManager:
             # 只处理实现了筹码分布逻辑的数据源
             if not hasattr(fetcher, 'get_chip_distribution'):
                 continue
-            
+
             fetcher_name = fetcher.name
             # 动态生成熔断器的 key，例如 "TushareFetcher" -> "tushare_chip"
             source_key = f"{fetcher_name.replace('Fetcher', '').lower()}_chip"
@@ -2497,4 +2509,28 @@ class DataFetcherManager:
         if top or bottom:
             return top, bottom
         logger.warning(f"[板块排行] 所有数据源均失败，最终错误: {last_error}")
+    def get_belong_board(self, stock_code: str) -> Optional[pd.DataFrame]:
+        """获取股票所属板块（自动切换数据源）"""
+        for fetcher in self._fetchers:
+            try:
+                data = fetcher.get_belong_board(stock_code)
+                if data is not None and not data.empty:
+                    logger.info(f"[{fetcher.name}] 获取所属板块成功")
+                    return data
+            except Exception as e:
+                logger.warning(f"[{fetcher.name}] 获取所属板块失败: {e}")
+                continue
+        return None
+
+    def get_sector_rankings(self, n: int = 5) -> Tuple[List[Dict], List[Dict]]:
+        """获取板块涨跌榜（自动切换数据源）"""
+        for fetcher in self._fetchers:
+            try:
+                data = fetcher.get_sector_rankings(n)
+                if data:
+                    logger.info(f"[{fetcher.name}] 获取板块排行成功")
+                    return data
+            except Exception as e:
+                logger.warning(f"[{fetcher.name}] 获取板块排行失败: {e}")
+                continue
         return [], []

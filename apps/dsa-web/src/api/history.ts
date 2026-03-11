@@ -3,7 +3,6 @@ import { toCamelCase } from './utils';
 import type {
   HistoryListResponse,
   HistoryItem,
-  HistoryFilters,
   AnalysisReport,
   NewsIntelResponse,
   NewsIntelItem,
@@ -11,9 +10,14 @@ import type {
 
 // ============ API 接口 ============
 
-export interface GetHistoryListParams extends HistoryFilters {
+export interface GetHistoryListParams {
   page?: number;
   limit?: number;
+  startDate?: string;
+  endDate?: string;
+  analysisDate?: string;
+  dailyDedup?: boolean;
+  sortBy?: 'created_at' | 'sentiment_score';
 }
 
 export const historyApi = {
@@ -22,12 +26,17 @@ export const historyApi = {
    * @param params 筛选和分页参数
    */
   getList: async (params: GetHistoryListParams = {}): Promise<HistoryListResponse> => {
-    const { stockCode, startDate, endDate, page = 1, limit = 20 } = params;
+    const { page = 1, limit = 20, startDate, endDate, analysisDate, dailyDedup, sortBy } = params;
 
-    const queryParams: Record<string, string | number> = { page, limit };
-    if (stockCode) queryParams.stock_code = stockCode;
-    if (startDate) queryParams.start_date = startDate;
-    if (endDate) queryParams.end_date = endDate;
+    const queryParams: Record<string, string | number | boolean> = { page, limit };
+    if (dailyDedup !== undefined) queryParams.daily_dedup = dailyDedup;
+    if (sortBy) queryParams.sort_by = sortBy;
+    if (analysisDate) {
+      queryParams.analysis_date = analysisDate;
+    } else {
+      if (startDate) queryParams.start_date = startDate;
+      if (endDate) queryParams.end_date = endDate;
+    }
 
     const response = await apiClient.get<Record<string, unknown>>('/api/v1/history', {
       params: queryParams,
@@ -88,5 +97,34 @@ export const historyApi = {
     });
 
     return toCamelCase<{ deleted: number }>(response.data);
+  },
+
+  /**
+   * Export batch Markdown report for a specific date
+   * @param analysisDate Analysis date in YYYY-MM-DD format (optional, defaults to today)
+   * @returns Promise that resolves when download starts
+   */
+  exportBatchMarkdown: async (analysisDate?: string): Promise<void> => {
+    const params: Record<string, string | number | boolean> = {};
+    if (analysisDate) {
+      params.analysis_date = analysisDate;
+    }
+
+    // Use direct browser download to handle file attachment
+    const queryString = Object.keys(params)
+      .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+      .join('&');
+    const url = `/api/v1/history/batch/markdown${queryString ? '?' + queryString : ''}`;
+
+    // Create a temporary anchor element to trigger download
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', analysisDate
+      ? `stock_analysis_report_${analysisDate}.md`
+      : `stock_analysis_report_${new Date().toISOString().split('T')[0]}.md`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   },
 };

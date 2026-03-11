@@ -5,7 +5,7 @@ A股自选股智能分析系统 - 存储层
 ===================================
 
 职责：
-1. 管理 SQLite 数据库连接（单例模式）
+1. 管理数据库连接（单例模式，支持 SQLite/MySQL）
 2. 定义 ORM 数据模型
 3. 提供数据存取接口
 4. 实现智能更新逻辑（断点续传）
@@ -68,54 +68,54 @@ if TYPE_CHECKING:
 class StockDaily(Base):
     """
     股票日线数据模型
-    
+
     存储每日行情数据和计算的技术指标
     支持多股票、多日期的唯一约束
     """
     __tablename__ = 'stock_daily'
-    
+
     # 主键
     id = Column(Integer, primary_key=True, autoincrement=True)
-    
+
     # 股票代码（如 600519, 000001）
     code = Column(String(10), nullable=False, index=True)
-    
+
     # 交易日期
     date = Column(Date, nullable=False, index=True)
-    
+
     # OHLC 数据
     open = Column(Float)
     high = Column(Float)
     low = Column(Float)
     close = Column(Float)
-    
+
     # 成交数据
     volume = Column(Float)  # 成交量（股）
     amount = Column(Float)  # 成交额（元）
     pct_chg = Column(Float)  # 涨跌幅（%）
-    
+
     # 技术指标
     ma5 = Column(Float)
     ma10 = Column(Float)
     ma20 = Column(Float)
     volume_ratio = Column(Float)  # 量比
-    
+
     # 数据来源
     data_source = Column(String(50))  # 记录数据来源（如 AkshareFetcher）
-    
+
     # 更新时间
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
+
     # 唯一约束：同一股票同一日期只能有一条数据
     __table_args__ = (
         UniqueConstraint('code', 'date', name='uix_code_date'),
         Index('ix_code_date', 'code', 'date'),
     )
-    
+
     def __repr__(self):
         return f"<StockDaily(code={self.code}, date={self.date}, close={self.close})>"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return {
@@ -133,6 +133,74 @@ class StockDaily(Base):
             'ma20': self.ma20,
             'volume_ratio': self.volume_ratio,
             'data_source': self.data_source,
+        }
+
+
+class StockChipDistribution(Base):
+    """
+    股票筹码分布数据模型
+
+    存储每日筹码分布数据，包括获利比例、平均成本、筹码集中度等
+    """
+    __tablename__ = 'stock_chip_distribution'
+
+    # 主键
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # 股票代码（如 600519, 000001）
+    code = Column(String(10), nullable=False, index=True)
+
+    # 交易日期
+    date = Column(Date, nullable=False, index=True)
+
+    # 数据来源
+    source = Column(String(50), nullable=False, default='akshare')
+
+    # 获利情况
+    profit_ratio = Column(Float)  # 获利比例(0-1)
+    avg_cost = Column(Float)      # 平均成本
+
+    # 90%筹码区间
+    cost_90_low = Column(Float)    # 90%筹码成本下限
+    cost_90_high = Column(Float)   # 90%筹码成本上限
+    concentration_90 = Column(Float)  # 90%筹码集中度
+
+    # 70%筹码区间
+    cost_70_low = Column(Float)    # 70%筹码成本下限
+    cost_70_high = Column(Float)   # 70%筹码成本上限
+    concentration_70 = Column(Float)  # 70%筹码集中度
+
+    # 筹码状态描述
+    chip_status = Column(Text)      # 筹码状态描述文本
+
+    # 更新时间
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    # 唯一约束：同一股票同一日期只能有一条数据
+    __table_args__ = (
+        UniqueConstraint('code', 'date', name='uix_chip_code_date'),
+        Index('ix_chip_code_date', 'code', 'date'),
+    )
+
+    def __repr__(self):
+        return f"<StockChipDistribution(code={self.code}, date={self.date}, profit={self.profit_ratio})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'code': self.code,
+            'date': self.date.isoformat() if self.date else None,
+            'source': self.source,
+            'profit_ratio': self.profit_ratio,
+            'avg_cost': self.avg_cost,
+            'cost_90_low': self.cost_90_low,
+            'cost_90_high': self.cost_90_high,
+            'concentration_90': self.concentration_90,
+            'cost_70_low': self.cost_70_low,
+            'cost_70_high': self.cost_70_high,
+            'concentration_70': self.concentration_70,
+            'chip_status': self.chip_status,
         }
 
 
@@ -162,6 +230,7 @@ class NewsIntel(Base):
     title = Column(String(300), nullable=False)
     snippet = Column(Text)
     url = Column(String(1000), nullable=False)
+    url_hash = Column(String(64), nullable=False, index=True)  # URL的MD5哈希，用于索引和去重
     source = Column(String(100))
     published_date = Column(DateTime, index=True)
 
@@ -176,12 +245,17 @@ class NewsIntel(Base):
     requester_query = Column(String(255))
 
     __table_args__ = (
-        UniqueConstraint('url', name='uix_news_url'),
+        UniqueConstraint('url_hash', name='uix_news_url_hash'),
         Index('ix_news_code_pub', 'code', 'published_date'),
     )
 
     def __repr__(self) -> str:
         return f"<NewsIntel(code={self.code}, title={self.title[:20]}...)>"
+
+    @staticmethod
+    def compute_url_hash(url: str) -> str:
+        """计算URL的MD5哈希值"""
+        return hashlib.md5(url.encode('utf-8')).hexdigest()
 
 
 class FundamentalSnapshot(Base):
@@ -624,6 +698,127 @@ class LLMUsage(Base):
     called_at = Column(DateTime, default=datetime.now, index=True)
 
 
+class WatchingStock(Base):
+    """
+    盯盘股票表
+
+    存储需要盯盘的股票信息，包括理想买入价格等
+    """
+    __tablename__ = 'watching_stocks'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # 股票信息
+    code = Column(String(10), nullable=False, index=True)
+    name = Column(String(50))
+
+    # 分析相关
+    sentiment_score = Column(Integer, nullable=False, index=True)  # 评分
+    analysis_date = Column(Date, nullable=False, index=True)  # 分析日期
+    ideal_buy = Column(Float, nullable=False)  # 理想买入价格
+    secondary_buy = Column(Float)  # 次级买入价格
+    stop_loss = Column(Float)  # 止损价格
+    take_profit = Column(Float)  # 止盈价格
+
+    # 关联分析历史
+    analysis_history_id = Column(Integer, ForeignKey('analysis_history.id'), nullable=True, index=True)
+
+    # 状态
+    is_active = Column(Boolean, nullable=False, default=True, index=True)  # 是否激活盯盘
+    triggered = Column(Boolean, nullable=False, default=False)  # 是否已触发
+    triggered_at = Column(DateTime, nullable=True)  # 触发时间
+    trigger_price = Column(Float, nullable=True)  # 触发时的价格
+
+    # 备注
+    note = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint('code', 'analysis_date', name='uix_code_analysis_date'),
+        Index('ix_watching_active_score', 'is_active', 'sentiment_score'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'code': self.code,
+            'name': self.name,
+            'sentiment_score': self.sentiment_score,
+            'analysis_date': self.analysis_date.isoformat() if self.analysis_date else None,
+            'ideal_buy': self.ideal_buy,
+            'secondary_buy': self.secondary_buy,
+            'stop_loss': self.stop_loss,
+            'take_profit': self.take_profit,
+            'analysis_history_id': self.analysis_history_id,
+            'is_active': self.is_active,
+            'triggered': self.triggered,
+            'triggered_at': self.triggered_at.isoformat() if self.triggered_at else None,
+            'trigger_price': self.trigger_price,
+            'note': self.note,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class PriceAlert(Base):
+    """
+    价格提醒记录表
+
+    记录触发的价格提醒历史
+    """
+    __tablename__ = 'price_alerts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # 关联盯盘股票
+    watching_stock_id = Column(Integer, ForeignKey('watching_stocks.id'), nullable=False, index=True)
+
+    # 股票信息（冗余字段）
+    code = Column(String(10), nullable=False, index=True)
+    name = Column(String(50))
+
+    # 触发信息
+    alert_type = Column(String(20), nullable=False, index=True)  # ideal_buy / secondary_buy / stop_loss / take_profit
+    target_price = Column(Float, nullable=False)  # 目标价格
+    trigger_price = Column(Float, nullable=False)  # 触发时的实际价格
+    change_pct = Column(Float)  # 触发时的涨跌幅
+
+    # AI分析关联
+    analysis_triggered = Column(Boolean, nullable=False, default=False)  # 是否已触发AI分析
+    analysis_query_id = Column(String(64), nullable=True, index=True)  # AI分析的query_id
+
+    # 通知状态
+    notification_sent = Column(Boolean, nullable=False, default=False)  # 是否已发送通知
+    notification_sent_at = Column(DateTime, nullable=True)  # 通知发送时间
+
+    created_at = Column(DateTime, default=datetime.now, index=True)
+
+    __table_args__ = (
+        Index('ix_price_alert_code_time', 'code', 'created_at'),
+    )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'watching_stock_id': self.watching_stock_id,
+            'code': self.code,
+            'name': self.name,
+            'alert_type': self.alert_type,
+            'target_price': self.target_price,
+            'trigger_price': self.trigger_price,
+            'change_pct': self.change_pct,
+            'analysis_triggered': self.analysis_triggered,
+            'analysis_query_id': self.analysis_query_id,
+            'notification_sent': self.notification_sent,
+            'notification_sent_at': self.notification_sent_at.isoformat() if self.notification_sent_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class DatabaseManager:
     """
     数据库管理器 - 单例模式
@@ -681,7 +876,7 @@ class DatabaseManager:
         self._is_sqlite_engine = self._engine.url.get_backend_name() == 'sqlite'
         self._sqlite_file_db = self._is_sqlite_engine and self._is_file_sqlite_database()
         self._install_sqlite_pragma_handler()
-        
+
         # 创建 Session 工厂
         self._SessionLocal = sessionmaker(
             bind=self._engine,
@@ -820,7 +1015,7 @@ class DatabaseManager:
     @staticmethod
     def _normalize_sql_value(value: Any) -> Any:
         return None if pd.isna(value) else value
-    
+
     def get_session(self) -> Session:
         """
         获取数据库 Session
@@ -926,7 +1121,7 @@ class DatabaseManager:
         保存新闻情报到数据库
 
         去重策略：
-        - 优先按 URL 去重（唯一约束）
+        - 优先按 URL 哈希去重（唯一约束）
         - URL 缺失时按 title + source + published_date 进行软去重
 
         关联策略：
@@ -1271,26 +1466,28 @@ class DatabaseManager:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         offset: int = 0,
-        limit: int = 20
+        limit: int = 20,
+        sort_by: str = 'created_at'
     ) -> Tuple[List[AnalysisHistory], int]:
         """
         分页查询分析历史记录（带总数）
-        
+
         Args:
             code: 股票代码筛选
             start_date: 开始日期（含）
             end_date: 结束日期（含）
             offset: 偏移量（跳过前 N 条）
             limit: 每页数量
-            
+            sort_by: 排序字段 ('sentiment_score' 或 'created_at')
+
         Returns:
             Tuple[List[AnalysisHistory], int]: (记录列表, 总数)
         """
         from sqlalchemy import func
-        
+
         with self.get_session() as session:
             conditions = []
-            
+
             if code:
                 conditions.append(AnalysisHistory.code == code)
             if start_date:
@@ -1299,26 +1496,118 @@ class DatabaseManager:
             if end_date:
                 # created_at < end_date+1 00:00:00 (即 <= end_date 23:59:59)
                 conditions.append(AnalysisHistory.created_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
-            
+
             # 构建 where 子句
             where_clause = and_(*conditions) if conditions else True
-            
+
             # 查询总数
             total_query = select(func.count(AnalysisHistory.id)).where(where_clause)
             total = session.execute(total_query).scalar() or 0
-            
-            # 查询分页数据
-            data_query = (
-                select(AnalysisHistory)
-                .where(where_clause)
-                .order_by(desc(AnalysisHistory.created_at))
-                .offset(offset)
-                .limit(limit)
-            )
+
+            # 构建排序 - 默认为按时间排序
+            if sort_by == 'sentiment_score':
+                # 按得分降序，再按时间降序
+                data_query = (
+                    select(AnalysisHistory)
+                    .where(where_clause)
+                    .order_by(desc(AnalysisHistory.sentiment_score), desc(AnalysisHistory.created_at))
+                    .offset(offset)
+                    .limit(limit)
+                )
+            else:
+                # 按时间降序（默认）
+                data_query = (
+                    select(AnalysisHistory)
+                    .where(where_clause)
+                    .order_by(desc(AnalysisHistory.created_at))
+                    .offset(offset)
+                    .limit(limit)
+                )
             results = session.execute(data_query).scalars().all()
-            
+
             return list(results), total
-    
+
+    def get_analysis_history_daily_paginated(
+        self,
+        code: Optional[str] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        offset: int = 0,
+        limit: int = 20,
+        sort_by: str = 'sentiment_score'
+    ) -> Tuple[List[AnalysisHistory], int]:
+        """
+        分页查询分析历史记录（按天去重，同一天同一股票只保留最新的一条）
+
+        Args:
+            code: 股票代码筛选
+            start_date: 开始日期（含）
+            end_date: 结束日期（含）
+            offset: 偏移量（跳过前 N 条）
+            limit: 每页数量
+            sort_by: 排序字段 ('sentiment_score' 或 'created_at')
+
+        Returns:
+            Tuple[List[AnalysisHistory], int]: (记录列表, 总数)
+        """
+        from sqlalchemy import func, desc, asc
+
+        with self.get_session() as session:
+            # 使用窗口函数按天和股票代码分组，取每组最新的记录
+            # 先构建子查询，为每个(日期,股票代码)组标记最新的记录
+            conditions = []
+
+            if code:
+                conditions.append(AnalysisHistory.code == code)
+            if start_date:
+                conditions.append(AnalysisHistory.created_at >= datetime.combine(start_date, datetime.min.time()))
+            if end_date:
+                conditions.append(AnalysisHistory.created_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
+
+            where_clause = and_(*conditions) if conditions else True
+
+            # 使用窗口函数找出每个(日期,股票代码)组中最新的记录ID
+            date_part = func.date(AnalysisHistory.created_at).label('analysis_date')
+
+            # 窗口函数子查询：按日期和股票分组，取每组最大id（最新记录）
+            subquery = (
+                select(
+                    func.max(AnalysisHistory.id).label('max_id')
+                )
+                .where(where_clause)
+                .group_by(date_part, AnalysisHistory.code)
+                .subquery()
+            )
+
+            # 根据筛选出的ID查询完整记录
+            count_query = (
+                select(func.count(subquery.c.max_id))
+            )
+            total = session.execute(count_query).scalar() or 0
+
+            # 构建排序
+            if sort_by == 'sentiment_score':
+                # 按得分降序，再按时间降序
+                data_query = (
+                    select(AnalysisHistory)
+                    .where(AnalysisHistory.id.in_(select(subquery.c.max_id)))
+                    .order_by(desc(AnalysisHistory.sentiment_score), desc(AnalysisHistory.created_at))
+                    .offset(offset)
+                    .limit(limit)
+                )
+            else:
+                # 按时间排序
+                data_query = (
+                    select(AnalysisHistory)
+                    .where(AnalysisHistory.id.in_(select(subquery.c.max_id)))
+                    .order_by(desc(AnalysisHistory.created_at))
+                    .offset(offset)
+                    .limit(limit)
+                )
+            results = session.execute(data_query).scalars().all()
+
+            return list(results), total
+
     def get_analysis_history_by_id(self, record_id: int) -> Optional[AnalysisHistory]:
         """
         根据数据库主键 ID 查询单条分析历史记录
@@ -2108,6 +2397,594 @@ class DatabaseManager:
                 for r in by_model_rows
             ],
         }
+
+    # ------------------------------------------------------------------
+    # 盯盘股票 (WatchingStock) 操作
+    # ------------------------------------------------------------------
+
+    def add_watching_stock(
+        self,
+        code: str,
+        name: str,
+        sentiment_score: int,
+        analysis_date: date,
+        ideal_buy: float,
+        secondary_buy: Optional[float] = None,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+        analysis_history_id: Optional[int] = None,
+        note: Optional[str] = None,
+    ) -> Optional[WatchingStock]:
+        """
+        添加盯盘股票
+
+        Returns:
+            添加成功返回 WatchingStock 对象，已存在返回 None
+        """
+        try:
+            def _write(session: Session) -> Optional[WatchingStock]:
+                existing = session.execute(
+                    select(WatchingStock).where(
+                        and_(
+                            WatchingStock.code == code,
+                            WatchingStock.analysis_date == analysis_date
+                        )
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    logger.info(f"盯盘股票已存在: {code} {analysis_date}")
+                    return None
+
+                watching = WatchingStock(
+                    code=code,
+                    name=name,
+                    sentiment_score=sentiment_score,
+                    analysis_date=analysis_date,
+                    ideal_buy=ideal_buy,
+                    secondary_buy=secondary_buy,
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    analysis_history_id=analysis_history_id,
+                    is_active=True,
+                    triggered=False,
+                    note=note,
+                )
+                session.add(watching)
+                session.flush()
+                return watching
+
+            return self._run_write_transaction(
+                f"add_watching_stock[{code}]",
+                _write,
+            )
+        except IntegrityError:
+            logger.info(f"盯盘股票已存在(冲突): {code} {analysis_date}")
+            return None
+        except Exception as e:
+            logger.error(f"添加盯盘股票失败: {e}")
+            return None
+
+    def get_active_watching_stocks(self, min_score: int = 85) -> List[WatchingStock]:
+        """
+        获取活跃的盯盘股票列表
+
+        Args:
+            min_score: 最低评分阈值
+        """
+        with self.get_session() as session:
+            results = session.execute(
+                select(WatchingStock)
+                .where(
+                    and_(
+                        WatchingStock.is_active == True,
+                        WatchingStock.triggered == False,
+                        WatchingStock.sentiment_score >= min_score
+                    )
+                )
+                .order_by(desc(WatchingStock.sentiment_score), desc(WatchingStock.created_at))
+            ).scalars().all()
+            return list(results)
+
+    def get_watching_stock_by_id(self, watching_id: int) -> Optional[WatchingStock]:
+        """根据ID获取盯盘股票"""
+        with self.get_session() as session:
+            return session.execute(
+                select(WatchingStock).where(WatchingStock.id == watching_id)
+            ).scalar_one_or_none()
+
+    def update_watching_stock_triggered(
+        self,
+        watching_id: int,
+        trigger_price: float,
+    ) -> bool:
+        """标记盯盘股票为已触发"""
+        try:
+            def _write(session: Session) -> bool:
+                watching = session.execute(
+                    select(WatchingStock).where(WatchingStock.id == watching_id)
+                ).scalar_one_or_none()
+                if not watching:
+                    return False
+                watching.triggered = True
+                watching.triggered_at = datetime.now()
+                watching.trigger_price = trigger_price
+                watching.updated_at = datetime.now()
+                return True
+
+            return self._run_write_transaction(
+                f"update_watching_stock_triggered[{watching_id}]",
+                _write,
+            )
+        except Exception as e:
+            logger.error(f"更新盯盘股票触发状态失败: {e}")
+            return False
+
+    def update_watching_stock_active(
+        self,
+        watching_id: int,
+        is_active: bool,
+    ) -> bool:
+        """更新盯盘股票激活状态"""
+        try:
+            def _write(session: Session) -> bool:
+                watching = session.execute(
+                    select(WatchingStock).where(WatchingStock.id == watching_id)
+                ).scalar_one_or_none()
+                if not watching:
+                    return False
+                watching.is_active = is_active
+                watching.updated_at = datetime.now()
+                return True
+
+            return self._run_write_transaction(
+                f"update_watching_stock_active[{watching_id}]",
+                _write,
+            )
+        except Exception as e:
+            logger.error(f"更新盯盘股票激活状态失败: {e}")
+            return False
+
+    def delete_watching_stock(self, watching_id: int) -> bool:
+        """删除盯盘股票"""
+        try:
+            def _write(session: Session) -> bool:
+                # 先删除关联的价格提醒
+                session.execute(
+                    delete(PriceAlert).where(PriceAlert.watching_stock_id == watching_id)
+                )
+                # 删除盯盘股票
+                result = session.execute(
+                    delete(WatchingStock).where(WatchingStock.id == watching_id)
+                )
+                return result.rowcount > 0
+
+            return self._run_write_transaction(
+                f"delete_watching_stock[{watching_id}]",
+                _write,
+            )
+        except Exception as e:
+            logger.error(f"删除盯盘股票失败: {e}")
+            return False
+
+    def delete_all_watching_stocks(self) -> int:
+        """删除所有盯盘股票"""
+        try:
+            def _write(session: Session) -> int:
+                # 先删除所有关联的价格提醒
+                session.execute(delete(PriceAlert))
+                # 删除所有盯盘股票
+                result = session.execute(delete(WatchingStock))
+                return result.rowcount or 0
+
+            count = self._run_write_transaction(
+                "delete_all_watching_stocks",
+                _write,
+            )
+            logger.info(f"删除了 {count} 只盯盘股票")
+            return count
+        except Exception as e:
+            logger.error(f"删除所有盯盘股票失败: {e}")
+            return 0
+
+    def get_watching_stocks_paginated(
+        self,
+        offset: int = 0,
+        limit: int = 20,
+        only_active: bool = False,
+    ) -> Tuple[List[WatchingStock], int]:
+        """
+        分页获取盯盘股票列表
+
+        Returns:
+            (记录列表, 总数)
+        """
+        with self.get_session() as session:
+            conditions = []
+            if only_active:
+                conditions.append(WatchingStock.is_active == True)
+            where_clause = and_(*conditions) if conditions else True
+
+            total = session.execute(
+                select(func.count(WatchingStock.id)).where(where_clause)
+            ).scalar() or 0
+
+            results = session.execute(
+                select(WatchingStock)
+                .where(where_clause)
+                .order_by(desc(WatchingStock.created_at))
+                .offset(offset)
+                .limit(limit)
+            ).scalars().all()
+
+            return list(results), total
+
+    def refresh_watching_stocks_from_history(
+        self,
+        days: int = 2,
+        min_score: int = 85,
+    ) -> int:
+        """
+        从分析历史中刷新盯盘股票列表
+
+        获取最近 days 天内评分 >= min_score 的分析记录，添加到盯盘列表
+
+        Args:
+            days: 回溯天数
+            min_score: 最低评分
+
+        Returns:
+            新增的盯盘股票数量
+        """
+        cutoff_date = date.today() - timedelta(days=days)
+
+        with self.get_session() as session:
+            # 先找出所有符合条件的股票代码
+            codes_query = (
+                select(AnalysisHistory.code)
+                .where(
+                    and_(
+                        AnalysisHistory.sentiment_score >= min_score,
+                        AnalysisHistory.ideal_buy.isnot(None),
+                        AnalysisHistory.created_at >= datetime.combine(cutoff_date, datetime.min.time())
+                    )
+                )
+                .distinct()
+            )
+            codes = session.execute(codes_query).scalars().all()
+
+            added_count = 0
+            for code in codes:
+                # 获取每只股票的最新分析记录
+                latest_analysis = session.execute(
+                    select(AnalysisHistory)
+                    .where(
+                        and_(
+                            AnalysisHistory.code == code,
+                            AnalysisHistory.sentiment_score >= min_score,
+                            AnalysisHistory.ideal_buy.isnot(None),
+                            AnalysisHistory.created_at >= datetime.combine(cutoff_date, datetime.min.time())
+                        )
+                    )
+                    .order_by(desc(AnalysisHistory.created_at))
+                    .limit(1)
+                ).scalar_one_or_none()
+
+                if latest_analysis:
+                    analysis_date = latest_analysis.created_at.date() if hasattr(latest_analysis, 'created_at') else date.today()
+                    watching = self.add_watching_stock(
+                        code=latest_analysis.code,
+                        name=latest_analysis.name or '',
+                        sentiment_score=latest_analysis.sentiment_score,
+                        analysis_date=analysis_date,
+                        ideal_buy=latest_analysis.ideal_buy,
+                        secondary_buy=latest_analysis.secondary_buy,
+                        stop_loss=latest_analysis.stop_loss,
+                        take_profit=latest_analysis.take_profit,
+                        analysis_history_id=latest_analysis.id,
+                        note=f"从分析历史自动添加 (评分: {latest_analysis.sentiment_score})",
+                    )
+                    if watching:
+                        added_count += 1
+
+            logger.info(f"刷新盯盘股票完成，新增 {added_count} 只")
+            return added_count
+
+    # ------------------------------------------------------------------
+    # 价格提醒 (PriceAlert) 操作
+    # ------------------------------------------------------------------
+
+    def add_price_alert(
+        self,
+        watching_stock_id: int,
+        code: str,
+        name: str,
+        alert_type: str,
+        target_price: float,
+        trigger_price: float,
+        change_pct: Optional[float] = None,
+    ) -> Optional[PriceAlert]:
+        """添加价格提醒记录"""
+        try:
+            def _write(session: Session) -> PriceAlert:
+                alert = PriceAlert(
+                    watching_stock_id=watching_stock_id,
+                    code=code,
+                    name=name,
+                    alert_type=alert_type,
+                    target_price=target_price,
+                    trigger_price=trigger_price,
+                    change_pct=change_pct,
+                    analysis_triggered=False,
+                    notification_sent=False,
+                )
+                session.add(alert)
+                session.flush()
+                return alert
+
+            return self._run_write_transaction(
+                f"add_price_alert[{code}]",
+                _write,
+            )
+        except Exception as e:
+            logger.error(f"添加价格提醒失败: {e}")
+            return None
+
+    def update_price_alert_analysis(
+        self,
+        alert_id: int,
+        analysis_query_id: str,
+    ) -> bool:
+        """更新价格提醒的AI分析状态"""
+        try:
+            def _write(session: Session) -> bool:
+                alert = session.execute(
+                    select(PriceAlert).where(PriceAlert.id == alert_id)
+                ).scalar_one_or_none()
+                if not alert:
+                    return False
+                alert.analysis_triggered = True
+                alert.analysis_query_id = analysis_query_id
+                return True
+
+            return self._run_write_transaction(
+                f"update_price_alert_analysis[{alert_id}]",
+                _write,
+            )
+        except Exception as e:
+            logger.error(f"更新价格提醒分析状态失败: {e}")
+            return False
+
+    def update_price_alert_notification(
+        self,
+        alert_id: int,
+    ) -> bool:
+        """更新价格提醒的通知发送状态"""
+        try:
+            def _write(session: Session) -> bool:
+                alert = session.execute(
+                    select(PriceAlert).where(PriceAlert.id == alert_id)
+                ).scalar_one_or_none()
+                if not alert:
+                    return False
+                alert.notification_sent = True
+                alert.notification_sent_at = datetime.now()
+                return True
+
+            return self._run_write_transaction(
+                f"update_price_alert_notification[{alert_id}]",
+                _write,
+            )
+        except Exception as e:
+            logger.error(f"更新价格提醒通知状态失败: {e}")
+            return False
+
+    def get_price_alerts_paginated(
+        self,
+        code: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> Tuple[List[PriceAlert], int]:
+        """
+        分页获取价格提醒历史
+
+        Returns:
+            (记录列表, 总数)
+        """
+        with self.get_session() as session:
+            conditions = []
+            if code:
+                conditions.append(PriceAlert.code == code)
+            where_clause = and_(*conditions) if conditions else True
+
+            total = session.execute(
+                select(func.count(PriceAlert.id)).where(where_clause)
+            ).scalar() or 0
+
+            results = session.execute(
+                select(PriceAlert)
+                .where(where_clause)
+                .order_by(desc(PriceAlert.created_at))
+                .offset(offset)
+                .limit(limit)
+            ).scalars().all()
+
+            return list(results), total
+
+    # ------------------------------------------------------------------
+    # 筹码分布 (StockChipDistribution) 操作
+    # ------------------------------------------------------------------
+
+    def save_chip_distribution(
+        self,
+        code: str,
+        chip_date: date,
+        source: str = "akshare",
+        profit_ratio: Optional[float] = None,
+        avg_cost: Optional[float] = None,
+        cost_90_low: Optional[float] = None,
+        cost_90_high: Optional[float] = None,
+        concentration_90: Optional[float] = None,
+        cost_70_low: Optional[float] = None,
+        cost_70_high: Optional[float] = None,
+        concentration_70: Optional[float] = None,
+        chip_status: Optional[str] = None,
+    ) -> Optional[StockChipDistribution]:
+        """
+        保存筹码分布数据（Upsert 模式）
+
+        如果同一天同一股票的数据已存在，则更新；否则插入新记录。
+
+        Returns:
+            保存的 StockChipDistribution 对象
+        """
+        try:
+            def _write(session: Session) -> StockChipDistribution:
+                # 检查是否已存在
+                existing = session.execute(
+                    select(StockChipDistribution).where(
+                        and_(
+                            StockChipDistribution.code == code,
+                            StockChipDistribution.date == chip_date
+                        )
+                    )
+                ).scalar_one_or_none()
+
+                now = datetime.now()
+                if existing:
+                    # 更新现有记录
+                    existing.source = source
+                    existing.profit_ratio = profit_ratio
+                    existing.avg_cost = avg_cost
+                    existing.cost_90_low = cost_90_low
+                    existing.cost_90_high = cost_90_high
+                    existing.concentration_90 = concentration_90
+                    existing.cost_70_low = cost_70_low
+                    existing.cost_70_high = cost_70_high
+                    existing.concentration_70 = concentration_70
+                    existing.chip_status = chip_status
+                    existing.updated_at = now
+                    logger.info(f"更新筹码分布数据: {code} {chip_date}")
+                    return existing
+                else:
+                    # 创建新记录
+                    record = StockChipDistribution(
+                        code=code,
+                        date=chip_date,
+                        source=source,
+                        profit_ratio=profit_ratio,
+                        avg_cost=avg_cost,
+                        cost_90_low=cost_90_low,
+                        cost_90_high=cost_90_high,
+                        concentration_90=concentration_90,
+                        cost_70_low=cost_70_low,
+                        cost_70_high=cost_70_high,
+                        concentration_70=concentration_70,
+                        chip_status=chip_status,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    session.add(record)
+                    session.flush()
+                    logger.info(f"保存筹码分布数据: {code} {chip_date}")
+                    return record
+
+            return self._run_write_transaction(
+                f"save_chip_distribution[{code}][{chip_date}]",
+                _write,
+            )
+        except Exception as e:
+            logger.error(f"保存筹码分布失败: {code} {chip_date}, 错误: {e}")
+            return None
+
+    def get_chip_distribution(
+        self,
+        code: str,
+        chip_date: Optional[date] = None,
+    ) -> Optional[StockChipDistribution]:
+        """
+        获取指定股票指定日期的筹码分布数据
+
+        Args:
+            code: 股票代码
+            chip_date: 目标日期（默认最新日期）
+
+        Returns:
+            StockChipDistribution 对象，不存在返回 None
+        """
+        with self.get_session() as session:
+            if chip_date:
+                # 获取指定日期的数据
+                result = session.execute(
+                    select(StockChipDistribution).where(
+                        and_(
+                            StockChipDistribution.code == code,
+                            StockChipDistribution.date == chip_date
+                        )
+                    )
+                ).scalar_one_or_none()
+                return result
+            else:
+                # 获取最新日期的数据
+                result = session.execute(
+                    select(StockChipDistribution)
+                    .where(StockChipDistribution.code == code)
+                    .order_by(desc(StockChipDistribution.date))
+                    .limit(1)
+                ).scalar_one_or_none()
+                return result
+
+    def get_chip_distribution_range(
+        self,
+        code: str,
+        start_date: date,
+        end_date: date,
+    ) -> List[StockChipDistribution]:
+        """
+        获取指定股票指定日期范围的筹码分布数据
+
+        Args:
+            code: 股票代码
+            start_date: 开始日期
+            end_date: 结束日期
+
+        Returns:
+            StockChipDistribution 对象列表
+        """
+        with self.get_session() as session:
+            results = session.execute(
+                select(StockChipDistribution)
+                .where(
+                    and_(
+                        StockChipDistribution.code == code,
+                        StockChipDistribution.date >= start_date,
+                        StockChipDistribution.date <= end_date
+                    )
+                )
+                .order_by(StockChipDistribution.date)
+            ).scalars().all()
+            return list(results)
+
+    def has_chip_distribution(self, code: str, chip_date: date) -> bool:
+        """
+        检查指定股票指定日期是否已有筹码分布数据
+
+        Args:
+            code: 股票代码
+            chip_date: 目标日期
+
+        Returns:
+            是否存在数据
+        """
+        with self.get_session() as session:
+            result = session.execute(
+                select(StockChipDistribution).where(
+                    and_(
+                        StockChipDistribution.code == code,
+                        StockChipDistribution.date == chip_date
+                    )
+                )
+            ).scalar_one_or_none()
+            return result is not None
 
 
 # 便捷函数

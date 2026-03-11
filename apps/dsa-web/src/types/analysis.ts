@@ -15,6 +15,7 @@ export interface AnalysisRequest {
   originalQuery?: string;
   selectionSource?: 'manual' | 'autocomplete' | 'import' | 'image';
   notify?: boolean;
+  agentSkills?: string[];
 }
 
 // ============ Report Types ============
@@ -151,6 +152,7 @@ export interface TaskStatus {
   stockName?: string;
   originalQuery?: string;
   selectionSource?: string;
+  agentSkills?: string[];
 }
 
 /** Task details used by task list and SSE events */
@@ -168,6 +170,7 @@ export interface TaskInfo {
   error?: string;
   originalQuery?: string;
   selectionSource?: string;
+  agentSkills?: string[];
 }
 
 /** Task list response */
@@ -197,6 +200,12 @@ export interface HistoryItem {
   reportType?: string;
   sentimentScore?: number;
   operationAdvice?: string;
+  trendPrediction?: string;
+  timeSensitivity?: string;
+  idealBuy?: string;
+  secondaryBuy?: string;
+  stopLoss?: string;
+  takeProfit?: string;
   createdAt: string;
 }
 

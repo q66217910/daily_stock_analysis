@@ -18,6 +18,7 @@ interface HistoryListProps {
   onToggleItemSelection: (recordId: number) => void;
   onToggleSelectAll: () => void;
   onDeleteSelected: () => void;
+  onAddToWatchSuccess?: () => void;
   className?: string;
 }
 
@@ -38,6 +39,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
   onToggleItemSelection,
   onToggleSelectAll,
   onDeleteSelected,
+  onAddToWatchSuccess,
   className = '',
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -170,6 +172,7 @@ export const HistoryList: React.FC<HistoryListProps> = ({
                 isDeleting={isDeleting}
                 onToggleChecked={onToggleItemSelection}
                 onClick={onItemClick}
+                onAddToWatchSuccess={onAddToWatchSuccess}
               />
             ))}
 

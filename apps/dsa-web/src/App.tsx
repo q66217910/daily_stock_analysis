@@ -8,7 +8,11 @@ import LoginPage from './pages/LoginPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ChatPage from './pages/ChatPage';
 import PortfolioPage from './pages/PortfolioPage';
+import AnalysisHistoryPage from './pages/AnalysisHistoryPage';
+import PriceMonitorPage from './pages/PriceMonitorPage';
 import { ApiErrorAlert, Shell } from './components/common';
+import OneDayStrategyPage from './pages/OneDayStrategyPage';
+import BatchAnalysisPage from './pages/BatchAnalysisPage';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { useAgentChatStore } from './stores/agentChatStore';
 import './App.css';
@@ -63,8 +67,12 @@ const AppContent: React.FC = () => {
       <Route element={<Shell />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/chat" element={<ChatPage />} />
+        <Route path="/history" element={<AnalysisHistoryPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
+        <Route path="/oneDay" element={<OneDayStrategyPage />} />
+        <Route path="/batch-analysis" element={<BatchAnalysisPage />} />
+        <Route path="/price-monitor" element={<PriceMonitorPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

@@ -119,11 +119,84 @@ from src.services.system_config_service import SystemConfigService
 async def app_lifespan(app: FastAPI):
     """Initialize and release shared services for the app lifecycle."""
     app.state.system_config_service = SystemConfigService()
+
+    # 启动均线多头筛选定时任务
+    ma_bull_scheduler_thread = None
+    price_monitor = None
     try:
+        import os
+        # 检查是否启用均线多头筛选定时任务
+        if os.getenv("MA_BULL_SCHEDULER_ENABLED", "true").lower() == "true":
+            import sys
+            from pathlib import Path
+
+            # 确保项目根目录在路径中
+            project_root = Path(__file__).parent.parent
+            sys.path.insert(0, str(project_root))
+
+            try:
+                import argparse
+                import logging
+                from ma_bull_scheduler import start_scheduler_in_background
+
+                logger = logging.getLogger(__name__)
+
+                # 创建默认参数
+                scheduler_args = argparse.Namespace(
+                    time=os.getenv("MA_BULL_SCHEDULER_TIME", "11:30"),
+                    run_immediately=os.getenv("MA_BULL_SCHEDULER_RUN_IMMEDIATELY", "false").lower() == "true",
+                    max_stocks=None,
+                    workers=int(os.getenv("MA_BULL_SCHEDULER_WORKERS", "10")),
+                    verbose=False,
+                    no_save=False,
+                    no_notify=False,
+                    analyze_ai=os.getenv("MA_BULL_SCHEDULER_ANALYZE_AI", "false").lower() == "true",
+                    max_ai_analyze=int(os.getenv("MA_BULL_SCHEDULER_MAX_AI_ANALYZE", "10")),
+                    debug=os.getenv("MA_BULL_SCHEDULER_DEBUG", "false").lower() == "true",
+                )
+
+                # 启动后台定时任务
+                ma_bull_scheduler_thread = start_scheduler_in_background(scheduler_args, daemon=True)
+                logger.info("均线多头筛选定时任务已启动")
+            except ImportError as e:
+                logger = logging.getLogger(__name__)
+                logger.warning(f"无法启动均线多头筛选定时任务（缺少依赖）: {e}")
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.exception(f"启动均线多头筛选定时任务失败: {e}")
+
+        # 检查是否启用价格盯盘服务
+        if os.getenv("PRICE_MONITOR_ENABLED", "false").lower() == "true":
+            try:
+                import logging
+                from src.services.price_monitor_service import get_price_monitor
+
+                logger = logging.getLogger(__name__)
+                price_monitor = get_price_monitor()
+
+                check_interval = int(os.getenv("PRICE_MONITOR_INTERVAL", "30"))
+                auto_refresh = os.getenv("PRICE_MONITOR_AUTO_REFRESH", "true").lower() == "true"
+
+                price_monitor.check_interval = check_interval
+                success = price_monitor.start(auto_refresh=auto_refresh)
+                if success:
+                    logger.info(f"价格盯盘服务已启动，检查间隔: {check_interval}秒")
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.exception(f"启动价格盯盘服务失败: {e}")
+
         yield
     finally:
         if hasattr(app.state, "system_config_service"):
             delattr(app.state, "system_config_service")
+        # 停止价格盯盘服务
+        if price_monitor:
+            try:
+                price_monitor.stop()
+                logging.getLogger(__name__).info("价格盯盘服务已停止")
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"停止价格盯盘服务失败: {e}")
+        # 定时任务线程是daemon线程，会随主进程退出自动结束
 
 
 def create_app(static_dir: Optional[Path] = None) -> FastAPI:
@@ -148,7 +221,8 @@ def create_app(static_dir: Optional[Path] = None) -> FastAPI:
             "## 功能模块\n"
             "- 股票分析：触发 AI 智能分析\n"
             "- 历史记录：查询历史分析报告\n"
-            "- 股票数据：获取行情数据\n\n"
+            "- 股票数据：获取行情数据\n"
+            "- 价格盯盘：监控高分股票，到达理想价格时自动触发AI分析\n\n"
             "## 认证方式\n"
             "支持可选的运行时认证（通过 WebUI 设置页面启用/关闭）"
         ),

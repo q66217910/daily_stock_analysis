@@ -1890,12 +1890,13 @@ class SearXNGSearchProvider(BaseSearchProvider):
 
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                "(KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                "Cookie": 'language=auto; locale=zh-Hans-CN; autocomplete=; favicon_resolver=; image_proxy=0; method=GET; safesearch=0; theme=simple; results_on_new_tab=0; doi_resolver=oadoi.org; simple_style=auto; center_alignment=0; advanced_search=0; query_in_title=0; search_on_category_select=1; hotkeys=default; url_formatting=pretty; disabled_plugins=; enabled_plugins=; tokens=; categories=news; disabled_engines="bing news__news\054karmasearch news__news\054qwant news__news\054reuters__news\054startpage news__news\054yahoo news__news\054brave.news__news"; enabled_engines="360search__general\054ansa__news\054ask__general\054baidu__general\054bing__general\054boardreader__general\054bpb__general\054crowdview__general\054yep__general\054yep news__news\054ddg definitions__general\054encyclosearch__general\054tineye__general\054fynd__general\054il post__news\054mozhi__general\054mwmbl__general\054openlibrary__general\054presearch__general\054presearch videos__general\054quark__general\054qwant__general\054searchmysite__general\054sogou__general\054sogou wechat__news\054tagesschau__general\054tagesschau__news\054yandex__general\054yahoo__general\054wiby__general\054wikibooks__general\054wikiquote__general\054wikisource__general\054wikispecies__general\054wikiversity__general\054wikivoyage__general\054wolframalpha__general\054seznam__general\054mojeek__general\054naver__general\054naver news__news\054yacy__general\054wikimini__general"'
             }
             params = {
                 "q": query,
                 "format": "json",
-                "time_range": self._time_range(days),
+                # "time_range": self._time_range(days),
                 "pageno": 1,
             }
 
@@ -1953,11 +1954,20 @@ class SearXNGSearchProvider(BaseSearchProvider):
                 snippet = (item.get("content") or item.get("description") or "")[:500]
                 published_date = None
                 if raw_published_date:
-                    try:
-                        dt = datetime.fromisoformat(raw_published_date.replace("Z", "+00:00"))
-                        published_date = dt.strftime("%Y-%m-%d")
-                    except (ValueError, AttributeError):
-                        published_date = raw_published_date
+                    date_str = str(raw_published_date)
+                    # 先用正则尝试解析，这是最可靠的方式
+                    t_match = re.match(r'(\d{4})-(\d{2})-(\d{2})', date_str)
+                    if t_match:
+                        # 只要能提取到 YYYY-MM-DD 就可以
+                        published_date = f"{t_match.group(1)}-{t_match.group(2)}-{t_match.group(3)}"
+                    else:
+                        # 正则失败再尝试用 fromisoformat
+                        try:
+                            processed = date_str.replace("Z", "+00:00").replace('T', ' ')
+                            dt = datetime.fromisoformat(processed)
+                            published_date = dt.strftime("%Y-%m-%d")
+                        except (ValueError, AttributeError):
+                            published_date = raw_published_date
 
                 results.append(
                     SearchResult(
@@ -2533,6 +2543,20 @@ class SearchService:
             except (OSError, OverflowError, ValueError):
                 pass
 
+        # 尝试解析带 "T" 的格式 (如 "2026-04-08T07:46:21")
+        # 手动解析这种格式，兼容所有 Python 版本
+        t_match = re.match(r'(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})', text)
+        if t_match:
+            try:
+                return date(
+                    int(t_match.group(1)),
+                    int(t_match.group(2)),
+                    int(t_match.group(3)),
+                )
+            except ValueError:
+                pass
+
+        # 尝试 ISO 格式解析
         iso_candidate = text.replace("Z", "+00:00")
         try:
             parsed_iso = datetime.fromisoformat(iso_candidate)
@@ -2587,107 +2611,8 @@ class SearchService:
 
         return None
 
-    def _filter_news_response(
-        self,
-        response: SearchResponse,
-        *,
-        search_days: int,
-        max_results: int,
-        log_scope: str,
-    ) -> SearchResponse:
-        """Hard-filter results by published_date recency and normalize date strings."""
-        if not response.success or not response.results:
-            return response
 
-        today = datetime.now().date()
-        earliest = today - timedelta(days=max(0, int(search_days) - 1))
-        latest = today + timedelta(days=self.FUTURE_TOLERANCE_DAYS)
 
-        filtered: List[SearchResult] = []
-        dropped_unknown = 0
-        dropped_old = 0
-        dropped_future = 0
-
-        for item in response.results:
-            published = self._normalize_news_publish_date(item.published_date)
-            if published is None:
-                dropped_unknown += 1
-                continue
-            if published < earliest:
-                dropped_old += 1
-                continue
-            if published > latest:
-                dropped_future += 1
-                continue
-
-            filtered.append(
-                SearchResult(
-                    title=item.title,
-                    snippet=item.snippet,
-                    url=item.url,
-                    source=item.source,
-                    published_date=published.isoformat(),
-                )
-            )
-            if len(filtered) >= max_results:
-                break
-
-        if dropped_unknown or dropped_old or dropped_future:
-            logger.info(
-                "[新闻过滤] %s: provider=%s, total=%s, kept=%s, drop_unknown=%s, drop_old=%s, drop_future=%s, window=[%s,%s]",
-                log_scope,
-                response.provider,
-                len(response.results),
-                len(filtered),
-                dropped_unknown,
-                dropped_old,
-                dropped_future,
-                earliest.isoformat(),
-                latest.isoformat(),
-            )
-
-        return SearchResponse(
-            query=response.query,
-            results=filtered,
-            provider=response.provider,
-            success=response.success,
-            error_message=response.error_message,
-            search_time=response.search_time,
-        )
-
-    def _normalize_and_limit_response(
-        self,
-        response: SearchResponse,
-        *,
-        max_results: int,
-    ) -> SearchResponse:
-        """Normalize parseable dates without enforcing freshness filtering."""
-        if not response.success or not response.results:
-            return response
-
-        normalized_results: List[SearchResult] = []
-        for item in response.results[:max_results]:
-            normalized_date = self._normalize_news_publish_date(item.published_date)
-            normalized_results.append(
-                SearchResult(
-                    title=item.title,
-                    snippet=item.snippet,
-                    url=item.url,
-                    source=item.source,
-                    published_date=(
-                        normalized_date.isoformat() if normalized_date is not None else item.published_date
-                    ),
-                )
-            )
-
-        return SearchResponse(
-            query=response.query,
-            results=normalized_results,
-            provider=response.provider,
-            success=response.success,
-            error_message=response.error_message,
-            search_time=response.search_time,
-        )
 
     @staticmethod
     def _limit_search_response(
@@ -2903,7 +2828,109 @@ class SearchService:
         finally:
             if cache_owner and cache_event is not None:
                 self._release_cache_fill(cache_key, cache_event)
-    
+
+    def _filter_news_response(
+            self,
+            response: SearchResponse,
+            *,
+            search_days: int,
+            max_results: int,
+            log_scope: str,
+    ) -> SearchResponse:
+        """Hard-filter results by published_date recency and normalize date strings."""
+        if not response.success or not response.results:
+            return response
+
+        today = datetime.now().date()
+        earliest = today - timedelta(days=max(0, int(search_days) - 1))
+        latest = today + timedelta(days=self.FUTURE_TOLERANCE_DAYS)
+
+        filtered: List[SearchResult] = []
+        dropped_unknown = 0
+        dropped_old = 0
+        dropped_future = 0
+
+        for item in response.results:
+            published = self._normalize_news_publish_date(item.published_date)
+            if published is None:
+                dropped_unknown += 1
+                continue
+            if published < earliest:
+                dropped_old += 1
+                continue
+            if published > latest:
+                dropped_future += 1
+                continue
+
+            filtered.append(
+                SearchResult(
+                    title=item.title,
+                    snippet=item.snippet,
+                    url=item.url,
+                    source=item.source,
+                    published_date=published.isoformat(),
+                )
+            )
+            if len(filtered) >= max_results:
+                break
+
+        if dropped_unknown or dropped_old or dropped_future:
+            logger.info(
+                "[新闻过滤] %s: provider=%s, total=%s, kept=%s, drop_unknown=%s, drop_old=%s, drop_future=%s, window=[%s,%s]",
+                log_scope,
+                response.provider,
+                len(response.results),
+                len(filtered),
+                dropped_unknown,
+                dropped_old,
+                dropped_future,
+                earliest.isoformat(),
+                latest.isoformat(),
+            )
+
+        return SearchResponse(
+            query=response.query,
+            results=filtered,
+            provider=response.provider,
+            success=response.success,
+            error_message=response.error_message,
+            search_time=response.search_time,
+        )
+
+    def _normalize_and_limit_response(
+            self,
+            response: SearchResponse,
+            *,
+            max_results: int,
+    ) -> SearchResponse:
+        """Normalize parseable dates without enforcing freshness filtering."""
+        if not response.success or not response.results:
+            return response
+
+        normalized_results: List[SearchResult] = []
+        for item in response.results[:max_results]:
+            normalized_date = self._normalize_news_publish_date(item.published_date)
+            normalized_results.append(
+                SearchResult(
+                    title=item.title,
+                    snippet=item.snippet,
+                    url=item.url,
+                    source=item.source,
+                    published_date=(
+                        normalized_date.isoformat() if normalized_date is not None else item.published_date
+                    ),
+                )
+            )
+
+        return SearchResponse(
+            query=response.query,
+            results=normalized_results,
+            provider=response.provider,
+            success=response.success,
+            error_message=response.error_message,
+            search_time=response.search_time,
+        )
+
     def search_stock_events(
         self,
         stock_code: str,

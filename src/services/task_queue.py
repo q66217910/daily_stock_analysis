@@ -71,6 +71,7 @@ class TaskInfo:
     completed_at: Optional[datetime] = None
     original_query: Optional[str] = None
     selection_source: Optional[str] = None
+    agent_skills: Optional[List[str]] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert task info into an API-friendly dictionary."""
@@ -88,6 +89,7 @@ class TaskInfo:
             "error": self.error,
             "original_query": self.original_query,
             "selection_source": self.selection_source,
+            "agent_skills": self.agent_skills,
         }
     
     def copy(self) -> 'TaskInfo':
@@ -107,6 +109,7 @@ class TaskInfo:
             completed_at=self.completed_at,
             original_query=self.original_query,
             selection_source=self.selection_source,
+            agent_skills=self.agent_skills,
         )
 
 
@@ -300,6 +303,7 @@ class AnalysisTaskQueue:
         selection_source: Optional[str] = None,
         report_type: str = "detailed",
         force_refresh: bool = False,
+        agent_skills: Optional[List[str]] = None,
     ) -> TaskInfo:
         """
         Submit a single analysis task.
@@ -311,6 +315,7 @@ class AnalysisTaskQueue:
             selection_source: Optional source label
             report_type: Report type
             force_refresh: Whether to bypass cache
+            agent_skills: Optional list of skill IDs to use for Agent analysis
 
         Returns:
             TaskInfo: Accepted task information
@@ -329,6 +334,7 @@ class AnalysisTaskQueue:
             selection_source=selection_source,
             report_type=report_type,
             force_refresh=force_refresh,
+            agent_skills=agent_skills,
         )
         if duplicates:
             raise duplicates[0]
@@ -343,6 +349,7 @@ class AnalysisTaskQueue:
         report_type: str = "detailed",
         force_refresh: bool = False,
         notify: bool = True,
+        agent_skills: Optional[List[str]] = None,
     ) -> Tuple[List[TaskInfo], List[DuplicateTaskError]]:
         """
         Submit analysis tasks in batch.
@@ -379,6 +386,7 @@ class AnalysisTaskQueue:
                     report_type=report_type,
                     original_query=original_query,
                     selection_source=selection_source,
+                    agent_skills=agent_skills,
                 )
                 self._tasks[task_id] = task_info
                 self._analyzing_stocks[dedupe_key] = task_id
@@ -391,6 +399,7 @@ class AnalysisTaskQueue:
                         report_type,
                         force_refresh,
                         notify,
+                        agent_skills,
                     )
                 except Exception:
                     # Roll back the current batch to avoid partial submission.
@@ -532,16 +541,19 @@ class AnalysisTaskQueue:
         report_type: str,
         force_refresh: bool,
         notify: bool = True,
+        agent_skills: Optional[List[str]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         执行分析任务（在线程池中运行）
-        
+
         Args:
             task_id: 任务 ID
             stock_code: 股票代码
             report_type: 报告类型
             force_refresh: 是否强制刷新
-            
+            notify: 是否发送通知
+            agent_skills: Optional list of skill IDs to use
+
         Returns:
             分析结果字典
         """
@@ -554,13 +566,13 @@ class AnalysisTaskQueue:
             task.started_at = datetime.now()
             task.message = "正在分析中..."
             task.progress = 10
-        
+
         self._broadcast_event("task_started", task.to_dict())
-        
+
         try:
             # 导入分析服务（延迟导入避免循环依赖）
             from src.services.analysis_service import AnalysisService
-            
+
             # 执行分析
             service = AnalysisService()
 
@@ -574,6 +586,7 @@ class AnalysisTaskQueue:
                 query_id=task_id,
                 send_notification=notify,
                 progress_callback=_on_progress,
+                agent_skills=agent_skills,
             )
             
             if result:

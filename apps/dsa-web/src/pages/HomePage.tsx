@@ -135,6 +135,9 @@ const HomePage: React.FC = () => {
           onToggleItemSelection={toggleHistorySelection}
           onToggleSelectAll={toggleSelectAllVisible}
           onDeleteSelected={() => setShowDeleteConfirm(true)}
+          onAddToWatchSuccess={() => {
+            // 可以在这里添加成功后的提示或刷新操作
+          }}
           className="flex-1 overflow-hidden"
         />
       </div>

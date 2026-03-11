@@ -27,14 +27,14 @@ class TaskStatusEnum(str, Enum):
 
 class AnalyzeRequest(BaseModel):
     """Analysis request parameters"""
-    
+
     stock_code: Optional[str] = Field(
-        None, 
-        description="单只股票代码", 
+        None,
+        description="单只股票代码",
         example="600519"
     )
     stock_codes: Optional[List[str]] = Field(
-        None, 
+        None,
         description="多只股票代码（与 stock_code 二选一）",
         example=["600519", "000858"]
     )
@@ -71,6 +71,11 @@ class AnalyzeRequest(BaseModel):
         True,
         description="是否发送推送通知（Telegram/企业微信等）"
     )
+    agent_skills: Optional[List[str]] = Field(
+        None,
+        description="Agent 技能列表：指定要使用的技能 ID 或 ['all'] 使用所有技能。不指定则使用配置文件中的默认值",
+        example=["bull_trend", "swing"]
+    )
 
     class Config:
         json_schema_extra = {
@@ -89,13 +94,13 @@ class AnalyzeRequest(BaseModel):
 
 class AnalysisResultResponse(BaseModel):
     """分析结果响应模型"""
-    
+
     query_id: str = Field(..., description="分析记录唯一标识")
     stock_code: str = Field(..., description="股票代码")
     stock_name: Optional[str] = Field(None, description="股票名称")
     report: Optional[Any] = Field(None, description="分析报告")
     created_at: str = Field(..., description="创建时间")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -115,15 +120,15 @@ class AnalysisResultResponse(BaseModel):
 
 class TaskAccepted(BaseModel):
     """异步任务接受响应"""
-    
+
     task_id: str = Field(..., description="任务 ID，用于查询状态")
     status: str = Field(
-        ..., 
+        ...,
         description="任务状态",
         pattern="^(pending|processing)$"
     )
     message: Optional[str] = Field(None, description="提示信息")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -167,9 +172,9 @@ class BatchDuplicateTaskItem(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "stock_code": "600519",
-                "existing_task_id": "task_existing_123",
-                "message": "股票 600519 正在分析中 (task_id: task_existing_123)"
+                "stock_code": "000858",
+                "existing_task_id": "task_existing_456",
+                "message": "股票 000858 正在分析中 (task_id: task_existing_456)"
             }
         }
 
@@ -206,25 +211,25 @@ class BatchTaskAcceptedResponse(BaseModel):
 
 class TaskStatus(BaseModel):
     """Task status model"""
-    
+
     task_id: str = Field(..., description="任务 ID")
     status: str = Field(
-        ..., 
+        ...,
         description="任务状态",
         pattern="^(pending|processing|completed|failed)$"
     )
     progress: Optional[int] = Field(
-        None, 
+        None,
         description="进度百分比 (0-100)",
         ge=0,
         le=100
     )
     result: Optional[AnalysisResultResponse] = Field(
-        None, 
+        None,
         description="分析结果（仅在 completed 时存在）"
     )
     error: Optional[str] = Field(
-        None, 
+        None,
         description="错误信息（仅在 failed 时存在）"
     )
     stock_name: Optional[str] = Field(None, description="股票名称")
@@ -234,7 +239,7 @@ class TaskStatus(BaseModel):
         description="选择来源",
         pattern=SELECTION_SOURCE_PATTERN,
     )
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -256,7 +261,7 @@ class TaskInfo(BaseModel):
 
     Used for task list and SSE event delivery
     """
-    
+
     task_id: str = Field(..., description="任务 ID")
     stock_code: str = Field(..., description="股票代码")
     stock_name: Optional[str] = Field(None, description="股票名称")
@@ -274,7 +279,8 @@ class TaskInfo(BaseModel):
         description="选择来源",
         pattern=SELECTION_SOURCE_PATTERN,
     )
-    
+    agent_skills: Optional[List[str]] = Field(None, description="Agent 技能列表")
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -297,12 +303,12 @@ class TaskInfo(BaseModel):
 
 class TaskListResponse(BaseModel):
     """任务列表响应模型"""
-    
+
     total: int = Field(..., description="任务总数")
     pending: int = Field(..., description="等待中的任务数")
     processing: int = Field(..., description="处理中的任务数")
     tasks: List[TaskInfo] = Field(..., description="任务列表")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -316,12 +322,12 @@ class TaskListResponse(BaseModel):
 
 class DuplicateTaskErrorResponse(BaseModel):
     """重复任务错误响应模型"""
-    
+
     error: str = Field("duplicate_task", description="错误类型")
     message: str = Field(..., description="错误信息")
     stock_code: str = Field(..., description="股票代码")
     existing_task_id: str = Field(..., description="已存在的任务 ID")
-    
+
     class Config:
         json_schema_extra = {
             "example": {

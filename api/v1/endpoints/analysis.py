@@ -262,6 +262,7 @@ def _handle_async_analysis_batch(
         report_type=request.report_type,
         force_refresh=request.force_refresh,
         notify=notify,
+        agent_skills=request.agent_skills,
     )
 
     accepted_tasks, duplicate_errors = task_queue.submit_tasks_batch(**submit_kwargs)
@@ -344,6 +345,7 @@ def _handle_sync_analysis(
             force_refresh=request.force_refresh,
             query_id=query_id,
             send_notification=getattr(request, "notify", True),
+            agent_skills=request.agent_skills,
         )
 
         if result is None:
@@ -451,6 +453,7 @@ def get_task_list(
             error=t.error,
             original_query=t.original_query,
             selection_source=t.selection_source,
+            agent_skills=t.agent_skills,
         )
         for t in all_tasks
     ]
