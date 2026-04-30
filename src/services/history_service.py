@@ -994,31 +994,102 @@ class HistoryService:
         )
 
         if total == 0:
-            return f"# 📊 股票分析报告 - {target_date.strftime('%Y-%m-%d')}\n\n暂无分析数据。"
+            return f"# 🎯 {target_date.strftime('%Y-%m-%d')} 决策仪表盘\n\n> 共分析 **0** 只股票\n\n暂无分析数据。"
 
-        # Generate header
+        # Count by operation advice
+        buy_count = 0
+        wait_count = 0
+        sell_count = 0
+        for record in records:
+            advice = (record.operation_advice or "").lower()
+            if "买" in advice or "buy" in advice:
+                buy_count += 1
+            elif "卖" in advice or "sell" in advice:
+                sell_count += 1
+            else:
+                wait_count += 1
+
+        # Generate header - 简洁决策仪表盘格式
         date_str = target_date.strftime('%Y-%m-%d')
         report_lines = [
-            f"# 📊 股票分析报告 - {date_str}",
+            f"# 🎯 {date_str} 决策仪表盘",
             "",
-            f"> 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"> 股票数量: {len(records)}",
+            f"> 共分析 **{len(records)}** 只股票 | 🟢买入:{buy_count} 🟡观望:{wait_count} 🔴卖出:{sell_count}",
             "",
             "---",
             "",
+            "## 📊 分析结果摘要",
+            "",
         ]
 
-        # Add table of contents (stock list)
+        # Add each stock in concise format
+        for record in records:
+            try:
+                name_escaped = self._escape_md(record.name or record.code)
+                raw_result = parse_json_field(record.raw_result)
+
+                # Get signal emoji
+                advice = record.operation_advice or "观望"
+                advice_lower = advice.lower()
+                if "买" in advice_lower or "buy" in advice_lower:
+                    signal_emoji = "🟢"
+                elif "卖" in advice_lower or "sell" in advice_lower:
+                    signal_emoji = "🔴"
+                else:
+                    signal_emoji = "🟡"
+
+                # Get sentiment score
+                score = record.sentiment_score or 50
+
+                # Get trend prediction
+                trend = record.trend_prediction or "看多"
+
+                # Get sniper points and time sensitivity
+                sniper_points = self._get_display_sniper_points(record, raw_result)
+                time_sensitivity = self._get_time_sensitivity(raw_result) or "--"
+
+                # Format price values with color (using ANSI or just labels for markdown compatibility)
+                ideal_buy = self._clean_sniper_value(sniper_points.get('ideal_buy'))
+                secondary_buy = self._clean_sniper_value(sniper_points.get('secondary_buy'))
+                stop_loss = self._clean_sniper_value(sniper_points.get('stop_loss'))
+                take_profit = self._clean_sniper_value(sniper_points.get('take_profit'))
+
+                # Build stock line with all info in one line
+                line_parts = [
+                    f"{signal_emoji} **{name_escaped}({record.code})**: {advice}",
+                    f"评分 {score}",
+                    trend
+                ]
+
+                if time_sensitivity and time_sensitivity != "--":
+                    line_parts.append(f"⏰{time_sensitivity}")
+                if ideal_buy != "N/A":
+                    line_parts.append(f"🎯{ideal_buy}")
+                if secondary_buy != "N/A":
+                    line_parts.append(f"💎{secondary_buy}")
+                if stop_loss != "N/A":
+                    line_parts.append(f"⚠️{stop_loss}")
+                if take_profit != "N/A":
+                    line_parts.append(f"💰{take_profit}")
+
+                report_lines.append(" | ".join(line_parts))
+                report_lines.append("")
+
+            except Exception as e:
+                logger.error(f"Failed to process record {record.id}: {e}", exc_info=True)
+                name_escaped = self._escape_md(record.name or record.code)
+                report_lines.append(f"⚪ **{name_escaped}({record.code})**: 处理失败")
+                report_lines.append("")
+
+        # Add detailed reports section
         report_lines.extend([
-            "## 📋 目录",
+            "---",
+            "",
+            "## 📋 详细分析报告",
             "",
         ])
-        for idx, record in enumerate(records, 1):
-            name_escaped = self._escape_md(record.name or record.code)
-            report_lines.append(f"{idx}. [{name_escaped} ({record.code})](#{idx}-{name_escaped.lower()}-{record.code.lower()})")
-        report_lines.extend(["", "---", ""])
 
-        # Add each stock report
+        # Add each stock's detailed report
         for idx, record in enumerate(records, 1):
             try:
                 # Get single stock markdown
@@ -1027,23 +1098,30 @@ class HistoryService:
                     # Add section anchor
                     name_escaped = self._escape_md(record.name or record.code)
                     report_lines.extend([
-                        f"## <a id=\"{idx}-{name_escaped.lower()}-{record.code.lower()}\"></a>{idx}. {name_escaped} ({record.code})",
+                        f"---",
+                        "",
+                        f"### <a id=\"{idx}-{name_escaped.lower()}-{record.code.lower()}\"></a>{idx}. {name_escaped} ({record.code})",
                         "",
                     ])
                     # Skip the first line (original header) and add the rest
                     lines = single_markdown.split('\n')[1:]
                     report_lines.extend(lines)
-                    report_lines.extend(["", "---", ""])
+                    report_lines.append("")
             except Exception as e:
                 logger.error(f"Failed to generate markdown for record {record.id}: {e}", exc_info=True)
                 name_escaped = self._escape_md(record.name or record.code)
                 report_lines.extend([
-                    f"## {idx}. {name_escaped} ({record.code})",
+                    f"### {idx}. {name_escaped} ({record.code})",
                     "",
                     f"*生成报告失败: {str(e)}*",
                     "",
-                    "---",
-                    "",
                 ])
+
+        # Add generation time at bottom
+        report_lines.extend([
+            "---",
+            "",
+            f"*生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+        ])
 
         return "\n".join(report_lines)
