@@ -861,7 +861,6 @@ class PriceAlert(Base):
         }
 
 
-class DatabaseManager:
 class AlertRuleRecord(Base):
     """Persisted alert rule managed through the Alert API."""
 
