@@ -351,10 +351,8 @@ def _handle_async_analysis_batch(
         report_type=request.report_type,
         force_refresh=request.force_refresh,
         notify=notify,
-        agent_skills=request.agent_skills,
+        skills=skills,
     )
-    if skills is not None:
-        submit_kwargs["skills"] = skills
 
     accepted_tasks, duplicate_errors = task_queue.submit_tasks_batch(**submit_kwargs)
 
@@ -619,7 +617,7 @@ def get_task_list(
             error=t.error,
             original_query=t.original_query,
             selection_source=t.selection_source,
-            agent_skills=t.agent_skills,
+            skills=t.skills,
         )
         for t in all_tasks
     ]
