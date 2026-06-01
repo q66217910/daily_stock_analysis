@@ -12,6 +12,7 @@ import type {
 // ============ API 接口 ============
 
 export interface GetHistoryListParams {
+  stockCode?: string;
   page?: number;
   limit?: number;
   startDate?: string;
@@ -27,9 +28,10 @@ export const historyApi = {
    * @param params 筛选和分页参数
    */
   getList: async (params: GetHistoryListParams = {}): Promise<HistoryListResponse> => {
-    const { page = 1, limit = 20, startDate, endDate, analysisDate, dailyDedup, sortBy } = params;
+    const { stockCode, page = 1, limit = 20, startDate, endDate, analysisDate, dailyDedup, sortBy } = params;
 
     const queryParams: Record<string, string | number | boolean> = { page, limit };
+    if (stockCode) queryParams.stock_code = stockCode;
     if (dailyDedup !== undefined) queryParams.daily_dedup = dailyDedup;
     if (sortBy) queryParams.sort_by = sortBy;
     if (analysisDate) {

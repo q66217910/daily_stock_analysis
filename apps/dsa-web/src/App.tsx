@@ -20,6 +20,10 @@ const ChatPage = lazy(() => import('./pages/ChatPage'));
 const PortfolioPage = lazy(() => import('./pages/PortfolioPage'));
 const AlertsPage = lazy(() => import('./pages/AlertsPage'));
 const StockScreeningPage = lazy(() => import('./pages/StockScreeningPage'));
+const AnalysisHistoryPage = lazy(() => import('./pages/AnalysisHistoryPage'));
+const PriceMonitorPage = lazy(() => import('./pages/PriceMonitorPage'));
+const BatchAnalysisPage = lazy(() => import('./pages/BatchAnalysisPage'));
+const ReportExtractPage = lazy(() => import('./pages/ReportExtractPage'));
 
 const AppContent: React.FC = () => {
   const location = useLocation();
@@ -77,6 +81,10 @@ const AppContent: React.FC = () => {
       >
         <Route path="/" element={<HomePage />} />
         <Route path="/chat" element={<ChatPage />} />
+        <Route path="/history" element={<AnalysisHistoryPage />} />
+        <Route path="/price-monitor" element={<PriceMonitorPage />} />
+        <Route path="/batch-analysis" element={<BatchAnalysisPage />} />
+        <Route path="/report-extract" element={<ReportExtractPage />} />
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/screening" element={<StockScreeningPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
